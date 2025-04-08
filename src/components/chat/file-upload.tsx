@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { UploadIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PaperAirplaneIcon } from '@heroicons/react/24/outline'; // Use available icon
 import { ChatMode } from '@/lib/utils';
 
 interface FileUploadProps {

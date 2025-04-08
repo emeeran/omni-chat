@@ -63,7 +63,7 @@ export default function Home() {
         : null;
 
     // Integration with Vercel AI SDK's useChat hook
-    const { handleSubmit, isLoading, messages: aiMessages } = useChat({
+    const { messages: aiMessages, input, handleInputChange, handleSubmit: submitAiMessage, isLoading, setMessages } = useChat({
         api: '/api/chat',
         id: activeChatId || undefined,
         body: {
@@ -75,10 +75,21 @@ export default function Home() {
             maxTokens: activeChat?.maxTokens || maxTokens,
             fileData: activeChat?.fileData,
         },
+        onResponse: (response) => {
+            // For debugging
+            console.log("Got response from API:", response);
+        },
         onFinish: (message) => {
+            console.log("Message finished:", message);
+
+            if (!message || !message.content || !message.content.trim()) {
+                console.warn("Empty message content received");
+                return;
+            }
+
             // Create assistant message
             const assistantMessage: ChatMessage = {
-                id: uuidv4(),
+                id: message.id || uuidv4(),
                 role: 'assistant',
                 content: message.content,
                 createdAt: new Date(),
@@ -86,21 +97,66 @@ export default function Home() {
                 provider: activeChat?.provider || provider,
             };
 
+            console.log("Created assistant message:", assistantMessage);
+
             // Update chat session with new message
             if (activeChatId) {
-                setChatSessions(prev =>
-                    prev.map(session =>
+                setChatSessions(prevSessions => {
+                    const updatedSessions = prevSessions.map(session =>
                         session.id === activeChatId
                             ? {
                                 ...session,
                                 messages: [...session.messages, assistantMessage],
                             }
                             : session
-                    )
-                );
+                    );
+                    console.log("Updated chat sessions:", updatedSessions);
+                    return updatedSessions;
+                });
+            } else {
+                console.log("No active chat ID found for updating messages.");
             }
         },
     });
+
+    // Sync AI SDK messages with our chat sessions when AI messages change
+    useEffect(() => {
+        if (!activeChatId || !aiMessages || aiMessages.length === 0) return;
+        
+        // Check if the last AI message is already in our chat session
+        const lastAiMessage = aiMessages[aiMessages.length - 1];
+        if (lastAiMessage.role === 'assistant') {
+            const activeSession = chatSessions.find(chat => chat.id === activeChatId);
+            if (activeSession) {
+                const hasMessage = activeSession.messages.some(msg => 
+                    msg.role === 'assistant' && msg.id === lastAiMessage.id
+                );
+                
+                if (!hasMessage) {
+                    // Add the new assistant message
+                    const assistantMessage: ChatMessage = {
+                        id: lastAiMessage.id || uuidv4(),
+                        role: 'assistant',
+                        content: lastAiMessage.content,
+                        createdAt: new Date(),
+                        mode: activeChat?.mode || mode,
+                        provider: activeChat?.provider || provider,
+                    };
+                    
+                    setChatSessions(prevSessions => {
+                        return prevSessions.map(session =>
+                            session.id === activeChatId
+                                ? {
+                                    ...session,
+                                    messages: [...session.messages, assistantMessage],
+                                }
+                                : session
+                        );
+                    });
+                }
+            }
+        }
+    }, [aiMessages, activeChatId, chatSessions, activeChat?.mode, mode, activeChat?.provider, provider]);
 
     // Function to create a new chat
     const handleNewChat = () => {
@@ -122,6 +178,7 @@ export default function Home() {
         setChatSessions(prev => [...prev, newChat]);
         setActiveChatId(newChatId);
         setCurrentFile(null);
+        setMessages([]);
     };
 
     // Function to handle retry (regenerate last response)
@@ -140,9 +197,26 @@ export default function Home() {
             )
         );
 
-        // Trigger AI response
-        const formEvent = new Event('submit', { bubbles: true, cancelable: true });
-        handleSubmit(formEvent as unknown as React.FormEvent<HTMLFormElement>);
+        // Get user messages for AI resubmission
+        const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
+        if (userMessages.length > 0) {
+            // Convert to AI SDK message format
+            const aiFormatMessages = userMessages.map(msg => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content
+            }));
+            
+            // Set current messages and re-submit the last user message
+            setMessages(aiFormatMessages);
+            const lastUserMsg = userMessages[userMessages.length - 1];
+            
+            setTimeout(() => {
+                // Trigger submission with the last user message
+                const event = new Event('submit', { bubbles: true, cancelable: true });
+                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+            }, 100);
+        }
     };
 
     // Function to save the current chat
@@ -264,9 +338,13 @@ export default function Home() {
             );
         }
 
-        // Trigger AI response
-        const formEvent = new Event('submit', { bubbles: true, cancelable: true });
-        handleSubmit(formEvent as unknown as React.FormEvent<HTMLFormElement>);
+        // Submit to AI
+        handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
+        
+        setTimeout(() => {
+            const event = new Event('submit', { bubbles: true, cancelable: true });
+            submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+        }, 100);
     };
 
     // Prepare personas list - would normally come from a database or API
@@ -619,17 +697,18 @@ export default function Home() {
             {/* Chat area */}
             <div className="flex-1 flex flex-col h-full">
                 {/* Messages */}
-                <div className={`flex-1 overflow-y-auto p-4 ${textSize === 'small' ? 'text-sm' : textSize === 'large' ? 'text-lg' : 'text-base'}`}>
+                <div className={`flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full ${textSize === 'small' ? 'text-sm' : textSize === 'large' ? 'text-lg' : 'text-base'
+                    }`}>
                     {(!activeChat || activeChat.messages.length === 0) ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                        <div className="text-center py-8 text-muted-foreground">
                             <h2 className="text-2xl font-bold mb-2">Welcome to Omni Chat</h2>
-                            <p className="text-muted-foreground max-w-md mb-8">
+                            <p className="max-w-md mx-auto mb-8">
                                 Start a new conversation by typing a message below.
                             </p>
 
                             {activeChat && ['document', 'image', 'audio'].includes(activeChat.mode) && (
-                                <div className="mt-6 w-full max-w-md">
-                                    <p className="text-sm font-medium mb-4">
+                                <div className="mt-6">
+                                    <p className="text-sm font-medium">
                                         {activeChat.mode === 'document' && 'Upload a document to chat about its contents'}
                                         {activeChat.mode === 'image' && 'Upload an image or provide a description to generate one'}
                                         {activeChat.mode === 'audio' && 'Upload an audio file or provide text to convert to speech'}
@@ -638,9 +717,12 @@ export default function Home() {
                             )}
                         </div>
                     ) : (
-                        activeChat.messages.map((message) => (
-                            <Message key={message.id} message={message} />
-                        ))
+                        <div className="space-y-6">
+                            {activeChat.messages.map((message) => (
+                                <Message key={message.id} message={message} />
+                            ))}
+                            <div className="h-4" />
+                        </div>
                     )}
                     <div ref={messagesEndRef} />
                 </div>

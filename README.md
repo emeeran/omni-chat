@@ -54,18 +54,17 @@ Omni Chat is a robust chat application built with the Vercel AI SDK, featuring a
    yarn install
    ```
 
-3. Set up environment variables:
-   Create a `.env.local` file in the root directory with your API keys:
-   ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   GROQ_API_KEY=your_groq_api_key_here
-   MISTRAL_API_KEY=your_mistral_api_key_here
-   FIREWORKS_API_KEY=your_fireworks_api_key_here
-   GOOGLE_AI_API_KEY=your_google_ai_api_key_here
+3. Set up environment variables by copying the example file:
+   ```bash
+   cp .env.example .env.local
    ```
 
-4. Run the development server:
+4. Edit `.env.local` and add your API keys from the respective providers:
+   - OpenAI: https://platform.openai.com/account/api-keys
+   - Anthropic: https://console.anthropic.com/account/keys
+   - Groq: https://console.groq.com/keys
+
+5. Run the development server:
    ```bash
    npm run dev
    # or
@@ -102,3 +101,40 @@ Omni Chat is a robust chat application built with the Vercel AI SDK, featuring a
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Using Actual AI Providers vs. Simulation Mode
+
+### Actual AI Providers
+
+To use actual AI providers, you need to get API keys from their respective platforms and add them to your `.env.local` file. Each provider requires its own API key:
+
+- For OpenAI: Get your API key from https://platform.openai.com/account/api-keys
+- For Anthropic: Get your API key from https://console.anthropic.com/account/keys
+- For Groq: Get your API key from https://console.groq.com/keys
+
+### Simulation Mode
+
+If you don't have API keys or want to test the application without making API calls:
+
+1. Set `OPENAI_API_KEY=USE_SIMULATION` in your `.env.local` file
+2. The application will use a simulated response generator instead of calling the actual AI APIs
+
+Note: Simulated responses are not AI-generated and are just for demonstration purposes.
+
+## Troubleshooting
+
+### Responses Not Displayed
+
+If responses are not being displayed:
+
+1. Check your browser console for any errors
+2. Verify your API keys are correctly set in the `.env.local` file
+3. Make sure you have sufficient credits/quota on your AI provider account
+
+### API Rate Limits
+
+If you encounter rate limit errors:
+
+1. Switch to a different provider
+2. Wait a few minutes before trying again
+3. Check your usage quota on the provider's dashboard

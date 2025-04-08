@@ -3,50 +3,121 @@
 import { formatDate } from '@/lib/utils';
 import { ChatMessage } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
-import { motion } from 'framer-motion';
+import { useEffect } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 export function Message({ message }: { message: ChatMessage }) {
     const isUser = message.role === 'user';
 
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
-        >
-            <div
-                className={`max-w-3xl px-4 py-3 rounded-2xl ${isUser
-                    ? 'bg-primary text-primary-foreground rounded-tr-none'
-                    : 'bg-muted dark:bg-slate-800 rounded-tl-none'
-                    }`}
-            >
-                <div className="flex items-center mb-1">
-                    <span className="font-medium text-sm">
+    // For debugging purposes
+    useEffect(() => {
+        if (!message.content || message.content.trim() === '') {
+            console.warn("Empty message content:", message);
+        }
+    }, [message]);
+
+    // Safety check for message content
+    if (!message || !message.content) {
+        console.error("Invalid message object:", message);
+        return (
+            <div className="w-full mb-6 border-b border-border/30 pb-4">
+                <div className="flex items-center gap-2 text-sm mb-2">
+                    <span className={`font-semibold ${isUser ? 'text-primary' : 'text-secondary'}`}>
                         {isUser ? 'You' : 'AI Assistant'}
                     </span>
-                    <span className="text-xs ml-2 opacity-70">
-                        {formatDate(message.createdAt)}
-                    </span>
-                    {message.provider && (
-                        <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-secondary/10 text-secondary-foreground/80">
-                            {message.provider}
-                        </span>
-                    )}
-                    {message.mode && message.mode !== 'default' && (
-                        <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary-foreground/80">
-                            {message.mode}
-                        </span>
-                    )}
                 </div>
-                <div className="prose dark:prose-invert prose-sm max-w-none overflow-auto max-h-[60vh]">
-                    {message.content ? (
-                        <ReactMarkdown className="break-words whitespace-pre-wrap">{message.content}</ReactMarkdown>
-                    ) : (
-                        <p className="text-muted-foreground italic">No content to display</p>
-                    )}
-                </div>
+                <p className="text-muted-foreground italic">Error displaying message content</p>
             </div>
-        </motion.div>
+        );
+    }
+
+    return (
+        <div className="w-full mb-6 border-b border-border/30 pb-4">
+            <div className="flex items-center gap-2 text-sm mb-2">
+                <span className={`font-semibold ${isUser ? 'text-primary' : 'text-secondary'}`}>
+                    {isUser ? 'You' : 'AI Assistant'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                    {formatDate(message.createdAt)}
+                </span>
+                {message.provider && (
+                    <span className="text-xs text-muted-foreground">
+                        via {message.provider}
+                    </span>
+                )}
+                {message.mode && message.mode !== 'default' && (
+                    <span className="text-xs text-muted-foreground">
+                        • {message.mode} mode
+                    </span>
+                )}
+            </div>
+            <div className="prose dark:prose-invert max-w-none mt-2">
+                {message.content && message.content.trim() ? (
+                    <ReactMarkdown 
+                        className="whitespace-pre-wrap break-words"
+                        components={{
+                            // Improve code block rendering
+                            code({node, inline, className, children, ...props}) {
+                                const match = /language-(\w+)/.exec(className || '');
+                                const language = match ? match[1] : '';
+                                
+                                return !inline && language ? (
+                                    <SyntaxHighlighter
+                                        style={vscDarkPlus}
+                                        language={language}
+                                        PreTag="div"
+                                        wrapLines={true}
+                                        showLineNumbers={true}
+                                        customStyle={{
+                                            marginTop: '0.5em',
+                                            marginBottom: '0.5em',
+                                            borderRadius: '0.375rem',
+                                            background: '#1e1e1e'
+                                        }}
+                                        {...props}
+                                    >
+                                        {String(children).replace(/\n$/, '')}
+                                    </SyntaxHighlighter>
+                                ) : (
+                                    <code className={`${className} rounded bg-gray-200 dark:bg-gray-800 px-1 py-0.5`} {...props}>
+                                        {children}
+                                    </code>
+                                );
+                            },
+                            // Improve paragraph spacing
+                            p({children}) {
+                                return <p className="mb-4 last:mb-0">{children}</p>;
+                            },
+                            // Improve list rendering
+                            ul({children}) {
+                                return <ul className="pl-6 list-disc mb-4">{children}</ul>;
+                            },
+                            ol({children}) {
+                                return <ol className="pl-6 list-decimal mb-4">{children}</ol>;
+                            },
+                            // Better table styling
+                            table({children}) {
+                                return (
+                                    <div className="overflow-x-auto mb-4">
+                                        <table className="border-collapse border border-border">{children}</table>
+                                    </div>
+                                );
+                            },
+                            th({children}) {
+                                return <th className="border border-border px-4 py-2 bg-muted font-semibold">{children}</th>;
+                            },
+                            td({children}) {
+                                return <td className="border border-border px-4 py-2">{children}</td>;
+                            }
+                        }}
+                    >
+                        {message.content}
+                    </ReactMarkdown>
+                ) : (
+                    <p className="text-muted-foreground italic">No content to display</p>
+                )}
+            </div>
+        </div>
     );
 }

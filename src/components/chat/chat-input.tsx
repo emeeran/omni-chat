@@ -14,18 +14,31 @@ interface ChatInputProps {
 
 export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatInputProps) {
     const [input, setInput] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
 
-        if (!input.trim() || isLoading || disabled) return;
+        if (!input.trim() || isLoading || disabled || submitting) return;
 
-        onSubmit(input, mode);
-        setInput('');
+        try {
+            setSubmitting(true);
+            // Submit the message to the parent component
+            onSubmit(input, mode);
+            // Clear the input after successful submission
+            setInput('');
+        } catch (error) {
+            console.error("Error submitting message:", error);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const showAudioButton = mode === 'audio';
     const showImageButton = mode === 'image';
+
+    // Determine if the input should be disabled
+    const isInputDisabled = isLoading || disabled || submitting;
 
     return (
         <form
@@ -37,7 +50,7 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
                     type="button"
                     className="p-2 text-muted-foreground hover:text-foreground transition-colors"
                     aria-label="Upload image"
-                    disabled={isLoading || disabled}
+                    disabled={isInputDisabled}
                 >
                     <PhotoIcon className="h-5 w-5" />
                 </button>
@@ -48,7 +61,7 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
                     type="button"
                     className="p-2 text-muted-foreground hover:text-foreground transition-colors"
                     aria-label="Record audio"
-                    disabled={isLoading || disabled}
+                    disabled={isInputDisabled}
                 >
                     <MicrophoneIcon className="h-5 w-5" />
                 </button>
@@ -61,7 +74,8 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
                     onChange={(e) => setInput(e.target.value)}
                     placeholder={isLoading ? "AI is thinking..." : "Type a message..."}
                     className="w-full p-3 rounded-xl bg-muted/50 focus:bg-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-                    disabled={isLoading || disabled}
+                    disabled={isInputDisabled}
+                    aria-label="Message input"
                 />
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-muted-foreground">
                     {!isLoading && input.length > 0 && (
@@ -73,10 +87,10 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
             <button
                 type="submit"
                 className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-                disabled={!input.trim() || isLoading || disabled}
+                disabled={!input.trim() || isInputDisabled}
                 aria-label="Send message"
             >
-                {isLoading ? (
+                {isLoading || submitting ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                     <PaperAirplaneIcon className="h-5 w-5" />
