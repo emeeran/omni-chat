@@ -158,132 +158,13 @@ export default function Home() {
         }
     }, [aiMessages, activeChatId, chatSessions, activeChat?.mode, mode, activeChat?.provider, provider]);
 
-    // Function to create a new chat
-    const handleNewChat = () => {
-        const newChatId = uuidv4();
-
-        const newChat: ChatSession = {
-            id: newChatId,
-            title: 'New Chat',
-            createdAt: new Date(),
-            messages: [],
-            mode,
-            provider,
-            model,
-            persona,
-            temperature,
-            maxTokens
-        };
-
-        setChatSessions(prev => [...prev, newChat]);
-        setActiveChatId(newChatId);
-        setCurrentFile(null);
-        setMessages([]);
-    };
-
-    // Function to handle retry (regenerate last response)
-    const handleRetry = () => {
-        if (!activeChat || activeChat.messages.length < 2) return;
-
-        // Remove the last assistant message
-        setChatSessions(prev =>
-            prev.map(session =>
-                session.id === activeChatId
-                    ? {
-                        ...session,
-                        messages: session.messages.slice(0, -1)
-                    }
-                    : session
-            )
-        );
-
-        // Get user messages for AI resubmission
-        const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
-        if (userMessages.length > 0) {
-            // Convert to AI SDK message format
-            const aiFormatMessages = userMessages.map(msg => ({
-                id: msg.id,
-                role: msg.role,
-                content: msg.content
-            }));
-            
-            // Set current messages and re-submit the last user message
-            setMessages(aiFormatMessages);
-            const lastUserMsg = userMessages[userMessages.length - 1];
-            
-            setTimeout(() => {
-                // Trigger submission with the last user message
-                const event = new Event('submit', { bubbles: true, cancelable: true });
-                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
-            }, 100);
-        }
-    };
-
-    // Function to save the current chat
-    const handleSaveChat = () => {
-        if (!activeChat) return;
-        // In a real app, this would save to a database or local storage
-        alert('Chat saved! In a production app, this would save to a database.');
-    };
-
-    // Function to load a saved chat
-    const handleLoadChat = () => {
-        // In a real app, this would load from a database or local storage
-        alert('In a production app, this would open a dialog to load a saved chat.');
-    };
-
-    // Function to export the current chat
-    const handleExportChat = () => {
-        if (!activeChat) return;
-
-        const chatData = JSON.stringify(activeChat, null, 2);
-        const blob = new Blob([chatData], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${activeChat.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
-    // Function to delete a chat
-    const handleDeleteChat = (chatId: string) => {
-        setChatSessions(prev => prev.filter(chat => chat.id !== chatId));
-
-        if (activeChatId === chatId) {
-            setActiveChatId(null);
-            setCurrentFile(null);
-        }
-    };
-
-    // Function to handle file upload
-    const handleFileUpload = (file: File) => {
-        setCurrentFile(file);
-
-        // Update the active chat with file data
-        if (activeChatId) {
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
-                        ? {
-                            ...session,
-                            fileData: {
-                                name: file.name,
-                                type: file.type,
-                                size: file.size,
-                            }
-                        }
-                        : session
-                )
-            );
-        }
-    };
-
     // Function to handle message submission
     const handleMessageSubmit = (content: string, currentMode: ChatMode) => {
+        // Prevent empty submissions
+        if (!content.trim()) return;
+        
+        console.log("Submitting message:", content);
+
         // Create user message
         const userMessage: ChatMessage = {
             id: uuidv4(),
@@ -318,8 +199,20 @@ export default function Home() {
                 } : undefined,
             };
 
+            console.log("Creating new chat:", newChat);
             setChatSessions(prev => [...prev, newChat]);
             setActiveChatId(newChatId);
+            
+            // Clear any existing AI messages
+            setMessages([]);
+            
+            // Add slight delay to ensure state updates before submission
+            setTimeout(() => {
+                // Format message for AI submission
+                handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
+                const event = new Event('submit', { bubbles: true, cancelable: true });
+                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+            }, 50);
         } else {
             // Update existing chat
             setChatSessions(prev =>
@@ -336,15 +229,14 @@ export default function Home() {
                         : session
                 )
             );
+            
+            // Submit to AI
+            handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
+            setTimeout(() => {
+                const event = new Event('submit', { bubbles: true, cancelable: true });
+                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+            }, 50);
         }
-
-        // Submit to AI
-        handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
-        
-        setTimeout(() => {
-            const event = new Event('submit', { bubbles: true, cancelable: true });
-            submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
-        }, 100);
     };
 
     // Prepare personas list - would normally come from a database or API
@@ -462,9 +354,137 @@ export default function Home() {
     // Initialize with a new chat on first load
     useEffect(() => {
         if (chatSessions.length === 0) {
+            console.log("Initializing with new chat");
             handleNewChat();
         }
     }, []);
+
+    // Function to create a new chat
+    const handleNewChat = () => {
+        const newChatId = uuidv4();
+
+        const newChat: ChatSession = {
+            id: newChatId,
+            title: 'New Chat',
+            createdAt: new Date(),
+            messages: [],
+            mode,
+            provider,
+            model,
+            persona,
+            temperature,
+            maxTokens
+        };
+
+        console.log("Creating new chat:", newChat);
+        setChatSessions(prev => [...prev, newChat]);
+        setActiveChatId(newChatId);
+        setCurrentFile(null);
+        
+        // Reset AI SDK state
+        setMessages([]);
+    };
+
+    // Function to handle retry (regenerate last response)
+    const handleRetry = () => {
+        if (!activeChat || activeChat.messages.length < 2) return;
+
+        // Remove the last assistant message
+        setChatSessions(prev =>
+            prev.map(session =>
+                session.id === activeChatId
+                    ? {
+                        ...session,
+                        messages: session.messages.slice(0, -1)
+                    }
+                    : session
+            )
+        );
+
+        // Get user messages for AI resubmission
+        const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
+        if (userMessages.length > 0) {
+            // Convert to AI SDK message format
+            const aiFormatMessages = userMessages.map(msg => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content
+            }));
+            
+            // Set current messages and re-submit the last user message
+            setMessages(aiFormatMessages);
+            const lastUserMsg = userMessages[userMessages.length - 1];
+            
+            setTimeout(() => {
+                // Trigger submission with the last user message
+                const event = new Event('submit', { bubbles: true, cancelable: true });
+                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+            }, 100);
+        }
+    };
+
+    // Function to save the current chat
+    const handleSaveChat = () => {
+        if (!activeChat) return;
+        // In a real app, this would save to a database or local storage
+        alert('Chat saved! In a production app, this would save to a database.');
+    };
+
+    // Function to load a saved chat
+    const handleLoadChat = () => {
+        // In a real app, this would load from a database or local storage
+        alert('In a production app, this would open a dialog to load a saved chat.');
+    };
+
+    // Function to export the current chat
+    const handleExportChat = () => {
+        if (!activeChat) return;
+
+        const chatData = JSON.stringify(activeChat, null, 2);
+        const blob = new Blob([chatData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${activeChat.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    // Function to delete a chat
+    const handleDeleteChat = (chatId: string) => {
+        setChatSessions(prev => prev.filter(chat => chat.id !== chatId));
+
+        if (activeChatId === chatId) {
+            setActiveChatId(null);
+            setCurrentFile(null);
+        }
+    };
+
+    // Function to handle file upload
+    const handleFileUpload = (file: File) => {
+        setCurrentFile(file);
+
+        // Update the active chat with file data
+        if (activeChatId) {
+            setChatSessions(prev =>
+                prev.map(session =>
+                    session.id === activeChatId
+                        ? {
+                            ...session,
+                            fileData: {
+                                name: file.name,
+                                type: file.type,
+                                size: file.size,
+                            }
+                        }
+                        : session
+                )
+            );
+        }
+    };
 
     return (
         <main className="flex h-screen overflow-hidden bg-background">

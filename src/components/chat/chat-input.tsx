@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect, useRef } from 'react';
 import { PaperAirplaneIcon, MicrophoneIcon, PhotoIcon } from '@heroicons/react/24/solid';
 import { CornerDownLeftIcon, Loader2 } from 'lucide-react';
 import { ChatMode } from '@/lib/utils';
@@ -15,6 +15,22 @@ interface ChatInputProps {
 export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatInputProps) {
     const [input, setInput] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const submitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Focus input on mount
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+        
+        // Clean up any pending timeouts on unmount
+        return () => {
+            if (submitTimeoutRef.current) {
+                clearTimeout(submitTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
@@ -23,13 +39,23 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
 
         try {
             setSubmitting(true);
+            
             // Submit the message to the parent component
             onSubmit(input, mode);
+            
             // Clear the input after successful submission
             setInput('');
+            
+            // Set a timeout to reset submitting state
+            submitTimeoutRef.current = setTimeout(() => {
+                setSubmitting(false);
+                // Refocus input for next message
+                if (inputRef.current) {
+                    inputRef.current.focus();
+                }
+            }, 300);
         } catch (error) {
             console.error("Error submitting message:", error);
-        } finally {
             setSubmitting(false);
         }
     };
@@ -69,6 +95,7 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
 
             <div className="relative flex-1 mx-2">
                 <input
+                    ref={inputRef}
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -76,6 +103,12 @@ export function ChatInput({ onSubmit, isLoading, mode, disabled = false }: ChatI
                     className="w-full p-3 rounded-xl bg-muted/50 focus:bg-muted focus:outline-none focus:ring-1 focus:ring-primary transition-all"
                     disabled={isInputDisabled}
                     aria-label="Message input"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSubmit(e);
+                        }
+                    }}
                 />
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-muted-foreground">
                     {!isLoading && input.length > 0 && (

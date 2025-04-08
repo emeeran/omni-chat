@@ -65,43 +65,44 @@ function createSimulatedStream(lastUserMessage: string, provider: Provider, mode
     return new ReadableStream({
         async start(controller) {
             try {
-                // Quick first response
-                const quickIntro = `Here's a response to your query about "${lastUserMessage.substring(0, 30)}${lastUserMessage.length > 30 ? '...' : ''}"`;
+                // Immediate first chunk to establish connection
+                controller.enqueue(encoder.encode(""));
+                
+                // Quick first response (no delay)
+                const quickIntro = `Here's a response to your query${lastUserMessage ? ' about "' + lastUserMessage.substring(0, 20) + (lastUserMessage.length > 20 ? '..."' : '"') : '.'}`;
                 controller.enqueue(encoder.encode(quickIntro + "\n\n"));
                 
-                // Generate a shorter, more focused response based on mode and provider
+                // Generate a short, focused response based on mode and provider
                 let mainResponse = '';
                 switch (mode) {
                     case 'rag':
-                        mainResponse = `Using ${provider}'s retrieval capabilities to find the most relevant information about your query.`;
+                        mainResponse = `Using ${provider}'s retrieval capabilities to find relevant information.`;
                         break;
                     case 'document':
-                        mainResponse = `Analyzing your document with ${provider}'s document processing capabilities.`;
+                        mainResponse = `Analyzing document content with ${provider}'s processing.`;
                         break;
                     case 'image':
-                        mainResponse = `Processing your image request with ${provider}'s image understanding model.`;
+                        mainResponse = `Processing image with ${provider}'s vision model.`;
                         break;
                     case 'audio':
-                        mainResponse = `Processing your audio with ${provider}'s speech recognition technology.`;
+                        mainResponse = `Processing audio with ${provider}'s speech recognition.`;
                         break;
                     default:
-                        mainResponse = `Responding with ${provider}'s conversational model to provide you with helpful information.`;
+                        mainResponse = `${provider} is responding to your query with helpful information.`;
                         break;
                 }
                 
-                // Stream the main response with faster typing simulation
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // Immediate content delivery 
                 controller.enqueue(encoder.encode(mainResponse));
                 
-                // Add a note about simulation mode but make it faster
-                const simulationNote = `\n\n[Note: This is a simulated response. Add valid API keys in .env.local to get real responses.]`;
-                await new Promise(resolve => setTimeout(resolve, 50)); 
+                // Add a note about simulation mode
+                const simulationNote = `\n\n[Note: This is a simulated response. Add API keys in .env.local for real responses.]`;
                 controller.enqueue(encoder.encode(simulationNote));
                 
                 controller.close();
             } catch (error) {
-                console.error("Error in streaming response:", error);
-                controller.enqueue(encoder.encode("\n\nAn error occurred. Please try again."));
+                console.error("Error in simulation stream:", error);
+                controller.enqueue(encoder.encode("\n\nError in simulation. Please try again."));
                 controller.close();
             }
         },
@@ -139,7 +140,12 @@ export async function POST(req: Request) {
         const body = await req.json();
         const { messages, provider, mode, model } = body;
         
-        console.log("Received request body:", JSON.stringify(body, null, 2));
+        console.log("Received request body:", JSON.stringify({
+            messageCount: messages?.length || 0,
+            provider,
+            mode,
+            model
+        }, null, 2));
 
         if (!messages || !Array.isArray(messages)) {
             console.error("Invalid messages format:", messages);
@@ -156,52 +162,62 @@ export async function POST(req: Request) {
             return new Response('Mode is required', { status: 400 });
         }
 
-        // Extract the last user message for context
-        const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || '';
-        console.log("Last user message:", lastUserMessage);
+        // Extract the last user message for context (handle empty messages case)
+        const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || 'Hello';
+        console.log("Last user message:", lastUserMessage.substring(0, 50) + (lastUserMessage.length > 50 ? '...' : ''));
 
+        // Always use the specified provider, even on first request
+        const preferredProvider = provider as Provider;
+        
         // Check if we should use simulation mode
         if (useSimulation) {
             console.log("Using simulation mode (no valid API keys)");
-            const stream = createSimulatedStream(lastUserMessage, provider as Provider, mode as ChatMode);
-            return new StreamingTextResponse(stream);
+            const stream = createSimulatedStream(lastUserMessage, preferredProvider, mode as ChatMode);
+            const response = new StreamingTextResponse(stream);
+            response.headers.set('X-Simulation', 'true');
+            return response;
         }
 
         // Create system message based on mode and provider
         let systemMessage = "";
         switch (mode) {
             case 'rag':
-                systemMessage = `You are an AI assistant powered by ${provider}, specialized in RAG (Retrieval Augmented Generation). When answering user queries, explain how you would retrieve and use relevant documents from their knowledge base to provide contextual responses.`;
+                systemMessage = `You are an AI assistant powered by ${preferredProvider}, specialized in RAG (Retrieval Augmented Generation). When answering user queries, explain how you would retrieve and use relevant documents from their knowledge base to provide contextual responses.`;
                 break;
             case 'document':
-                systemMessage = `You are an AI assistant powered by ${provider}, specialized in document analysis. You can extract information, summarize content, answer questions about documents, and compare multiple documents.`;
+                systemMessage = `You are an AI assistant powered by ${preferredProvider}, specialized in document analysis. You can extract information, summarize content, answer questions about documents, and compare multiple documents.`;
                 break;
             case 'image':
-                systemMessage = `You are an AI assistant powered by ${provider}, specialized in image analysis and generation. You can describe images, identify objects, or generate images based on text descriptions.`;
+                systemMessage = `You are an AI assistant powered by ${preferredProvider}, specialized in image analysis and generation. You can describe images, identify objects, or generate images based on text descriptions.`;
                 break;
             case 'audio':
-                systemMessage = `You are an AI assistant powered by ${provider}, specialized in audio processing. You can handle speech recognition, text-to-speech conversion, or analyze audio for various characteristics.`;
+                systemMessage = `You are an AI assistant powered by ${preferredProvider}, specialized in audio processing. You can handle speech recognition, text-to-speech conversion, or analyze audio for various characteristics.`;
                 break;
             default: // Default chat mode
-                systemMessage = `You are a helpful AI assistant powered by ${provider}. You are designed to be helpful, harmless, and honest in all interactions.`;
+                systemMessage = `You are a helpful AI assistant powered by ${preferredProvider}. You are designed to be helpful, harmless, and honest in all interactions.`;
                 break;
         }
 
-        // Format messages for the API call
+        // Format messages for the API call - ensure non-empty messages
         const formattedMessages = [
             { role: 'system', content: systemMessage },
-            ...messages.map(message => ({
+            ...messages.filter(m => m.content && m.content.trim()).map(message => ({
                 role: message.role,
                 content: message.content
             }))
         ];
 
+        // If no user messages, add a default one to avoid errors
+        if (!formattedMessages.some(m => m.role === 'user')) {
+            formattedMessages.push({ role: 'user', content: 'Hello' });
+        }
+
         let stream;
-        const selectedModel = model || getModel(provider as Provider);
+        const selectedModel = model || getModel(preferredProvider);
 
         // Choose the API based on the provider
         try {
-            switch (provider) {
+            switch (preferredProvider) {
                 case 'openai':
                     // Call OpenAI API
                     if (!OPENAI_API_KEY || 
@@ -284,12 +300,12 @@ export async function POST(req: Request) {
                         OPENAI_API_KEY === 'your_openai_api_key_here') {
                         throw new Error("OpenAI API key (used as fallback) is missing or set to simulation mode");
                     }
-                    console.log(`Provider ${provider} not fully implemented yet, falling back to OpenAI`);
+                    console.log(`Provider ${preferredProvider} not fully implemented yet, falling back to OpenAI`);
                     const fallbackResponse = await openai.chat.completions.create({
                         model: 'gpt-3.5-turbo',
                         messages: [
-                            { role: 'system', content: `You are an AI assistant. Pretend you are using ${provider} API.` },
-                            ...messages.map(message => ({
+                            { role: 'system', content: `You are an AI assistant. Pretend you are using ${preferredProvider} API.` },
+                            ...formattedMessages.map(message => ({
                                 role: message.role,
                                 content: message.content
                             }))
@@ -302,10 +318,10 @@ export async function POST(req: Request) {
                     break;
             }
         } catch (error) {
-            console.error(`Error calling ${provider} API:`, error);
+            console.error(`Error calling ${preferredProvider} API:`, error);
             
             // Instead of silently falling back to simulation mode, return the actual error
-            const errorMessage = `Error using ${provider} API: ${(error as Error).message}`;
+            const errorMessage = `Error using ${preferredProvider} API: ${(error as Error).message}`;
             console.error(errorMessage);
             
             // Create a simple response stream with the error message
@@ -323,7 +339,7 @@ export async function POST(req: Request) {
         }
 
         // Return the streaming response
-        console.log(`Returning streaming response from ${provider}`);
+        console.log(`Returning streaming response from ${preferredProvider}`);
         
         if (!stream) {
             console.error("Failed to create a valid stream");
@@ -334,7 +350,7 @@ export async function POST(req: Request) {
         const response = new StreamingTextResponse(stream);
         
         // Add debugging and caching headers
-        response.headers.set('X-Provider', provider);
+        response.headers.set('X-Provider', preferredProvider);
         response.headers.set('X-Model', selectedModel);
         response.headers.set('X-Mode', mode);
         response.headers.set('Cache-Control', 'public, s-maxage=10');
