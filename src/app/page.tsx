@@ -595,7 +595,7 @@ export default function Home() {
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <h2 className="text-sm font-medium">Temperature</h2>
-                                        <span className="text-xs text-muted-foreground">{temperature}</span>
+                                        <span className="text-xs text-muted-foreground">{activeChat?.temperature || temperature}</span>
                                     </div>
                                     <input
                                         type="range"
@@ -603,7 +603,21 @@ export default function Home() {
                                         max="1"
                                         step="0.1"
                                         value={activeChat?.temperature || temperature}
-                                        onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                                        onChange={(e) => {
+                                            const newValue = parseFloat(e.target.value);
+                                            setTemperature(newValue);
+                                            
+                                            // Update active chat if it exists
+                                            if (activeChatId) {
+                                                setChatSessions(prev =>
+                                                    prev.map(session =>
+                                                        session.id === activeChatId
+                                                            ? { ...session, temperature: newValue }
+                                                            : session
+                                                    )
+                                                );
+                                            }
+                                        }}
                                         className="w-full"
                                         disabled={isLoading}
                                     />
@@ -617,7 +631,7 @@ export default function Home() {
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <h2 className="text-sm font-medium">Max Tokens</h2>
-                                        <span className="text-xs text-muted-foreground">{maxTokens}</span>
+                                        <span className="text-xs text-muted-foreground">{activeChat?.maxTokens || maxTokens}</span>
                                     </div>
                                     <input
                                         type="range"
@@ -625,7 +639,21 @@ export default function Home() {
                                         max="4000"
                                         step="100"
                                         value={activeChat?.maxTokens || maxTokens}
-                                        onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                                        onChange={(e) => {
+                                            const newValue = parseInt(e.target.value);
+                                            setMaxTokens(newValue);
+                                            
+                                            // Update active chat if it exists
+                                            if (activeChatId) {
+                                                setChatSessions(prev =>
+                                                    prev.map(session =>
+                                                        session.id === activeChatId
+                                                            ? { ...session, maxTokens: newValue }
+                                                            : session
+                                                    )
+                                                );
+                                            }
+                                        }}
                                         className="w-full"
                                         disabled={isLoading}
                                     />
