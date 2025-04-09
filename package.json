@@ -11,6 +11,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "ai": "^2.2.33",
     "autoprefixer": "^10.4.16",
+    "date-fns": "^4.1.0",
     "framer-motion": "^11.0.3",
     "groq-sdk": "^0.19.0",
     "lucide-react": "^0.340.0",
