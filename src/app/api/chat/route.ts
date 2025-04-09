@@ -283,7 +283,7 @@ export async function POST(req: Request) {
                             messages: formattedMessages,
                             stream: true,
                             temperature: 0.5, // Lower temperature for more focused responses
-                            max_tokens: 2000,
+                            max_tokens: 1000, // Reduced from 2000 to avoid context window issues
                             top_p: 1,
                         });
                         stream = createGroqStream(groqResponse);

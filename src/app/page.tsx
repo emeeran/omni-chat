@@ -374,6 +374,22 @@ export default function Home() {
         }
     };
 
+    // Function to handle persona change
+    const handlePersonaChange = (newPersona: string) => {
+        setPersona(newPersona);
+
+        // Update persona for active chat if one exists
+        if (activeChatId) {
+            setChatSessions(prev =>
+                prev.map(session =>
+                    session.id === activeChatId
+                        ? { ...session, persona: newPersona }
+                        : session
+                )
+            );
+        }
+    };
+
     // Scroll to bottom when messages change
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -572,7 +588,7 @@ export default function Home() {
                                     <h2 className="text-sm font-medium mb-2">Persona</h2>
                                     <select
                                         value={activeChat?.persona || persona}
-                                        onChange={(e) => setPersona(e.target.value)}
+                                        onChange={(e) => handlePersonaChange(e.target.value)}
                                         className="w-full p-2 rounded-md bg-background border border-input"
                                         disabled={isLoading}
                                     >
@@ -629,18 +645,14 @@ export default function Home() {
 
                                 {/* Max Tokens Slider */}
                                 <div>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h2 className="text-sm font-medium">Max Tokens</h2>
-                                        <span className="text-xs text-muted-foreground">{activeChat?.maxTokens || maxTokens}</span>
-                                    </div>
+                                    <h2 className="text-sm font-medium mb-2">Max Tokens</h2>
                                     <input
                                         type="range"
                                         min="100"
-                                        max="8000"
-                                        step="100"
+                                        max="4000"
                                         value={activeChat?.maxTokens || maxTokens}
                                         onChange={(e) => {
-                                            const newValue = parseInt(e.target.value);
+                                            const newValue = Number(e.target.value);
                                             setMaxTokens(newValue);
                                             
                                             // Update active chat if it exists
@@ -657,9 +669,8 @@ export default function Home() {
                                         className="w-full"
                                         disabled={isLoading}
                                     />
-                                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                                        <span>Shorter</span>
-                                        <span>Longer</span>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        {activeChat?.maxTokens || maxTokens} tokens
                                     </div>
                                 </div>
 
@@ -792,32 +803,6 @@ export default function Home() {
                             <p className="max-w-md mx-auto mb-8">
                                 Start a new conversation by typing a message below.
                             </p>
-
-                            {/* Add test message button */}
-                            <button
-                                onClick={() => {
-                                    if (activeChatId) {
-                                        const testMsg: ChatMessage = {
-                                            id: uuidv4(),
-                                            role: 'assistant' as const,
-                                            content: "This is a test message added directly to verify rendering works.",
-                                            createdAt: new Date(),
-                                            mode: mode,
-                                            provider,
-                                        };
-                                        setChatSessions(prev =>
-                                            prev.map(session =>
-                                                session.id === activeChatId ?
-                                                    { ...session, messages: [...session.messages, testMsg] } :
-                                                    session
-                                            )
-                                        );
-                                    }
-                                }}
-                                className="p-2 mt-4 bg-blue-500 text-white rounded-md"
-                            >
-                                Add Test Message
-                            </button>
                         </div>
                     ) : (
                         <ChatHistoryText messages={activeChat.messages} />
