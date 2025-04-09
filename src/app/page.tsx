@@ -12,6 +12,7 @@ import { ChatMessage, ChatMode, Provider } from '@/lib/utils';
 import { Cog6ToothIcon, ArrowPathIcon, PlusIcon, BookmarkIcon, FolderOpenIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion';
 import { CustomChatSDK } from '../lib/custom-chat-sdk';
+import { ChatHistoryText } from '@/components/chat/chat-history-text';
 
 // Interface for chat session
 interface ChatSession {
@@ -80,95 +81,124 @@ export default function Home() {
         if (!content.trim() || isLoading) return;
 
         console.log("Submitting message:", content);
-
-        // Create user message
-        const userMsg: ChatMessage = {
-            id: uuidv4(),
-            role: 'user' as const,
-            content: content,
-            createdAt: new Date(),
-            mode: currentMode,
-            provider,
-        };
+        setIsLoading(true);
 
         let chatId = activeChatId;
 
-        // If no active chat, create one synchronously
-        if (!chatId) {
-            chatId = uuidv4();
-            const chatTitle = content.length > 30 ? `${content.substring(0, 30)}...` : content;
-
-            const newChat: ChatSession = {
-                id: chatId,
-                title: chatTitle,
+        try {
+            // Create user message
+            const userMsg: ChatMessage = {
+                id: uuidv4(),
+                role: 'user' as const,
+                content: content,
                 createdAt: new Date(),
-                messages: [userMsg],
                 mode: currentMode,
                 provider,
-                model,
-                persona,
-                temperature,
-                maxTokens,
-                fileData: currentFile ? {
-                    name: currentFile.name,
-                    type: currentFile.type,
-                    size: currentFile.size,
-                } : undefined,
             };
 
-            console.log("Creating new chat:", newChat);
-            setChatSessions(prevChats => [...prevChats, newChat]);
-            setActiveChatId(chatId);
-        } else {
-            // Update existing chat with user message
+            // If no active chat, create one synchronously
+            if (!chatId) {
+                chatId = uuidv4();
+                const chatTitle = content.length > 30 ? `${content.substring(0, 30)}...` : content;
+
+                const newChat: ChatSession = {
+                    id: chatId,
+                    title: chatTitle,
+                    createdAt: new Date(),
+                    messages: [userMsg],
+                    mode: currentMode,
+                    provider,
+                    model,
+                    persona,
+                    temperature,
+                    maxTokens,
+                    fileData: currentFile ? {
+                        name: currentFile.name,
+                        type: currentFile.type,
+                        size: currentFile.size,
+                    } : undefined,
+                };
+
+                console.log("Creating new chat:", newChat);
+                setChatSessions(prevChats => [...prevChats, newChat]);
+                setActiveChatId(chatId);
+            } else {
+                // Update existing chat with user message
+                setChatSessions(prevChats =>
+                    prevChats.map(session =>
+                        session.id === chatId
+                            ? {
+                                ...session,
+                                messages: [...session.messages, userMsg],
+                                title: session.messages.length === 0
+                                    ? (content.length > 30 ? `${content.substring(0, 30)}...` : content)
+                                    : session.title,
+                            }
+                            : session
+                    )
+                );
+            }
+
+            // Clear input field after submission
+            setInput('');
+
+            // Generate a response
+            const response = await sdk.generateResponse(content, {
+                mode: activeChat?.mode || mode,
+                provider: activeChat?.provider || provider,
+                model: activeChat?.model || model,
+                persona: activeChat?.persona || persona,
+                temperature: activeChat?.temperature || temperature,
+                maxTokens: activeChat?.maxTokens || maxTokens,
+                fileData: activeChat?.fileData,
+            });
+
+            console.log("Model response:", response);
+
+            const assistantMsg: ChatMessage = {
+                id: uuidv4(),
+                role: 'assistant' as const,
+                content: response,
+                createdAt: new Date(),
+                mode: activeChat?.mode || mode,
+                provider: activeChat?.provider || provider,
+            };
+
             setChatSessions(prevChats =>
                 prevChats.map(session =>
                     session.id === chatId
                         ? {
                             ...session,
-                            messages: [...session.messages, userMsg],
-                            title: session.messages.length === 0
-                                ? (content.length > 30 ? `${content.substring(0, 30)}...` : content)
-                                : session.title,
+                            messages: [...session.messages, assistantMsg],
                         }
                         : session
                 )
             );
+        } catch (error) {
+            console.error("Error generating response:", error);
+            // Add error message to chat
+            const errorMsg: ChatMessage = {
+                id: uuidv4(),
+                role: 'assistant' as const,
+                content: `Error: ${error instanceof Error ? error.message : 'Failed to generate response'}`,
+                createdAt: new Date(),
+                mode: activeChat?.mode || mode,
+                provider: activeChat?.provider || provider,
+            };
+
+            setChatSessions(prevChats =>
+                prevChats.map(session =>
+                    session.id === chatId
+                        ? {
+                            ...session,
+                            messages: [...session.messages, errorMsg],
+                        }
+                        : session
+                )
+            );
+        } finally {
+            setIsLoading(false);
         }
-
-        // Clear input field after submission
-        setInput('');
-
-        // Generate a response
-        const response = await sdk.generateResponse(content, {
-            mode: activeChat?.mode || mode,
-            provider: activeChat?.provider || provider,
-            model: activeChat?.model || model,
-            persona: activeChat?.persona || persona,
-            temperature: activeChat?.temperature || temperature,
-            maxTokens: activeChat?.maxTokens || maxTokens,
-            fileData: activeChat?.fileData,
-        });
-
-        const assistantMsg: ChatMessage = {
-            id: uuidv4(),
-            role: 'assistant' as const,
-            content: response,
-            createdAt: new Date(),
-            mode: activeChat?.mode || mode,
-            provider: activeChat?.provider || provider,
-        };
-
-        setChatSessions(prevChats =>
-            prevChats.map(session =>
-                session.id === chatId
-                    ? {
-                        ...session,
-                        messages: [...session.messages, assistantMsg],
-                    }
-                    : session
-            )
-        );
     };
 
     // Simple direct state update function for new responses (helper)
@@ -762,12 +792,7 @@ export default function Home() {
                             </button>
                         </div>
                     ) : (
-                        <div className="space-y-6">
-                            {activeChat.messages.map((message) => (
-                                <Message key={message.id} message={message} />
-                            ))}
-                            <div className="h-4" />
-                        </div>
+                        <ChatHistoryText messages={activeChat.messages} />
                     )}
                     <div ref={messagesEndRef} />
                 </div>

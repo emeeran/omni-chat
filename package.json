@@ -8,6 +8,7 @@
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-dropdown-menu": "^2.0.6",
     "@radix-ui/react-slider": "^1.1.2",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "ai": "^2.2.33",
     "autoprefixer": "^10.4.16",
     "framer-motion": "^11.0.3",
@@ -18,8 +19,9 @@
     "postcss": "^8.4.31",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-markdown": "^9.0.1",
+    "react-markdown": "^9.1.0",
     "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^4.0.1",
     "tailwindcss": "^3.4.1",
     "uuid": "^9.0.1"
   },

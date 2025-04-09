@@ -22,11 +22,50 @@ export class CustomChatSDK {
         this.initialized = true;
     }
 
-    public generateResponse(content: string, options: RequestOptions): Promise<string> {
-        // Use a synchronous approach for testing purposes
+    public async generateResponse(content: string, options: RequestOptions): Promise<string> {
         console.log("Generating response for:", content);
 
-        // Generate a simple deterministic response
-        return Promise.resolve(`This is a response to your message: "${content}". Using ${options.provider} with ${options.model || 'default model'}`);
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'user', content }
+                    ],
+                    provider: options.provider,
+                    mode: options.mode,
+                    model: options.model,
+                    temperature: options.temperature,
+                    maxTokens: options.maxTokens,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.statusText}`);
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+                throw new Error('Failed to get response reader');
+            }
+
+            let result = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                // Convert the chunk to text
+                const chunk = new TextDecoder().decode(value);
+                result += chunk;
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Error generating response:', error);
+            throw error;
+        }
     }
 }
