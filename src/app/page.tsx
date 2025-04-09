@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useChat } from 'ai/react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message } from '@/components/chat/message';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -12,6 +11,7 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { ChatMessage, ChatMode, Provider } from '@/lib/utils';
 import { Cog6ToothIcon, ArrowPathIcon, PlusIcon, BookmarkIcon, FolderOpenIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion';
+import { CustomChatSDK } from '../lib/custom-chat-sdk';
 
 // Interface for chat session
 interface ChatSession {
@@ -31,6 +31,10 @@ interface ChatSession {
         size: number;
     };
 }
+
+// Create a fresh SDK instance
+const sdk = new CustomChatSDK();
+sdk.init();
 
 export default function Home() {
     // State for active chat ID
@@ -57,141 +61,54 @@ export default function Home() {
     const [maxTokens, setMaxTokens] = useState(1000);
     const [textSize, setTextSize] = useState('medium');
 
-    // Get active chat session
-    const activeChat = activeChatId
-        ? chatSessions.find(chat => chat.id === activeChatId)
-        : null;
+    // Get active chat session with fallback
+    const activeChat = useMemo(() => {
+        if (!activeChatId) return null;
+        const chat = chatSessions.find(chat => chat.id === activeChatId);
+        console.log("Active chat:", activeChatId, chat?.messages?.length || 0);
+        return chat;
+    }, [activeChatId, chatSessions]);
 
-    // Integration with Vercel AI SDK's useChat hook
-    const { messages: aiMessages, input, handleInputChange, handleSubmit: submitAiMessage, isLoading, setMessages } = useChat({
-        api: '/api/chat',
-        id: activeChatId || undefined,
-        body: {
-            mode: activeChat?.mode || mode,
-            provider: activeChat?.provider || provider,
-            model: activeChat?.model || model,
-            persona: activeChat?.persona || persona,
-            temperature: activeChat?.temperature || temperature,
-            maxTokens: activeChat?.maxTokens || maxTokens,
-            fileData: activeChat?.fileData,
-        },
-        onResponse: (response) => {
-            // For debugging
-            console.log("Got response from API:", response);
-        },
-        onFinish: (message) => {
-            console.log("Message finished:", message);
+    // State to store messages
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-            if (!message || !message.content || !message.content.trim()) {
-                console.warn("Empty message content received");
-                return;
-            }
+    // Function to handle message submission - optimized version
+    const handleMessageSubmit = async (content: string, currentMode: ChatMode) => {
+        // Prevent empty submissions or duplicate submissions during loading
+        if (!content.trim() || isLoading) return;
 
-            // Create assistant message
-            const assistantMessage: ChatMessage = {
-                id: message.id || uuidv4(),
-                role: 'assistant',
-                content: message.content,
-                createdAt: new Date(),
-                mode: activeChat?.mode || mode,
-                provider: activeChat?.provider || provider,
-            };
-
-            console.log("Created assistant message:", assistantMessage);
-
-            // Update chat session with new message
-            if (activeChatId) {
-                setChatSessions(prevSessions => {
-                    const updatedSessions = prevSessions.map(session =>
-                        session.id === activeChatId
-                            ? {
-                                ...session,
-                                messages: [...session.messages, assistantMessage],
-                            }
-                            : session
-                    );
-                    console.log("Updated chat sessions:", updatedSessions);
-                    return updatedSessions;
-                });
-            } else {
-                console.log("No active chat ID found for updating messages.");
-            }
-        },
-    });
-
-    // Sync AI SDK messages with our chat sessions when AI messages change
-    useEffect(() => {
-        if (!activeChatId || !aiMessages || aiMessages.length === 0) return;
-        
-        // Check if the last AI message is already in our chat session
-        const lastAiMessage = aiMessages[aiMessages.length - 1];
-        if (lastAiMessage.role === 'assistant') {
-            const activeSession = chatSessions.find(chat => chat.id === activeChatId);
-            if (activeSession) {
-                const hasMessage = activeSession.messages.some(msg => 
-                    msg.role === 'assistant' && msg.id === lastAiMessage.id
-                );
-                
-                if (!hasMessage) {
-                    // Add the new assistant message
-                    const assistantMessage: ChatMessage = {
-                        id: lastAiMessage.id || uuidv4(),
-                        role: 'assistant',
-                        content: lastAiMessage.content,
-                        createdAt: new Date(),
-                        mode: activeChat?.mode || mode,
-                        provider: activeChat?.provider || provider,
-                    };
-                    
-                    setChatSessions(prevSessions => {
-                        return prevSessions.map(session =>
-                            session.id === activeChatId
-                                ? {
-                                    ...session,
-                                    messages: [...session.messages, assistantMessage],
-                                }
-                                : session
-                        );
-                    });
-                }
-            }
-        }
-    }, [aiMessages, activeChatId, chatSessions, activeChat?.mode, mode, activeChat?.provider, provider]);
-
-    // Function to handle message submission
-    const handleMessageSubmit = (content: string, currentMode: ChatMode) => {
-        // Prevent empty submissions
-        if (!content.trim()) return;
-        
         console.log("Submitting message:", content);
 
         // Create user message
-        const userMessage: ChatMessage = {
+        const userMsg: ChatMessage = {
             id: uuidv4(),
-            role: 'user',
+            role: 'user' as const,
             content: content,
             createdAt: new Date(),
             mode: currentMode,
             provider,
         };
 
-        // If no active chat, create one
-        if (!activeChatId) {
-            const newChatId = uuidv4();
+        let chatId = activeChatId;
+
+        // If no active chat, create one synchronously
+        if (!chatId) {
+            chatId = uuidv4();
             const chatTitle = content.length > 30 ? `${content.substring(0, 30)}...` : content;
 
             const newChat: ChatSession = {
-                id: newChatId,
+                id: chatId,
                 title: chatTitle,
                 createdAt: new Date(),
-                messages: [userMessage],
+                messages: [userMsg],
                 mode: currentMode,
                 provider,
                 model,
                 persona,
                 temperature,
                 maxTokens,
-                // Include file data if available
                 fileData: currentFile ? {
                     name: currentFile.name,
                     type: currentFile.type,
@@ -200,28 +117,16 @@ export default function Home() {
             };
 
             console.log("Creating new chat:", newChat);
-            setChatSessions(prev => [...prev, newChat]);
-            setActiveChatId(newChatId);
-            
-            // Clear any existing AI messages
-            setMessages([]);
-            
-            // Add slight delay to ensure state updates before submission
-            setTimeout(() => {
-                // Format message for AI submission
-                handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
-                const event = new Event('submit', { bubbles: true, cancelable: true });
-                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
-            }, 50);
+            setChatSessions(prevChats => [...prevChats, newChat]);
+            setActiveChatId(chatId);
         } else {
-            // Update existing chat
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
+            // Update existing chat with user message
+            setChatSessions(prevChats =>
+                prevChats.map(session =>
+                    session.id === chatId
                         ? {
                             ...session,
-                            messages: [...session.messages, userMessage],
-                            // Update title for new chats with only one message
+                            messages: [...session.messages, userMsg],
                             title: session.messages.length === 0
                                 ? (content.length > 30 ? `${content.substring(0, 30)}...` : content)
                                 : session.title,
@@ -229,14 +134,61 @@ export default function Home() {
                         : session
                 )
             );
-            
-            // Submit to AI
-            handleInputChange({ target: { value: content } } as React.ChangeEvent<HTMLInputElement>);
-            setTimeout(() => {
-                const event = new Event('submit', { bubbles: true, cancelable: true });
-                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
-            }, 50);
         }
+
+        // Clear input field after submission
+        setInput('');
+
+        // Generate a response
+        const response = await sdk.generateResponse(content, {
+            mode: activeChat?.mode || mode,
+            provider: activeChat?.provider || provider,
+            model: activeChat?.model || model,
+            persona: activeChat?.persona || persona,
+            temperature: activeChat?.temperature || temperature,
+            maxTokens: activeChat?.maxTokens || maxTokens,
+            fileData: activeChat?.fileData,
+        });
+
+        const assistantMsg: ChatMessage = {
+            id: uuidv4(),
+            role: 'assistant' as const,
+            content: response,
+            createdAt: new Date(),
+            mode: activeChat?.mode || mode,
+            provider: activeChat?.provider || provider,
+        };
+
+        setChatSessions(prevChats =>
+            prevChats.map(session =>
+                session.id === chatId
+                    ? {
+                        ...session,
+                        messages: [...session.messages, assistantMsg],
+                    }
+                    : session
+            )
+        );
+    };
+
+    // Simple direct state update function for new responses (helper)
+    const addResponseToChat = (chatId: string, content: string) => {
+        const responseMsg: ChatMessage = {
+            id: uuidv4(),
+            role: 'assistant' as const,
+            content,
+            createdAt: new Date(),
+            mode: activeChat?.mode || mode,
+            provider,
+        };
+
+        setChatSessions(prev =>
+            prev.map(session =>
+                session.id === chatId ?
+                    { ...session, messages: [...session.messages, responseMsg] } :
+                    session
+            )
+        );
     };
 
     // Prepare personas list - would normally come from a database or API
@@ -282,21 +234,67 @@ export default function Home() {
                 ];
             case 'openai':
                 return [
-                    { id: 'gpt-4o', label: 'GPT-4o' },
-                    { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-                    { id: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
+                    { id: 'gpt-4-1106-preview', label: 'GPT-4 Turbo Preview' },
+                    { id: 'gpt-4-vision-preview', label: 'GPT-4 Vision Preview' },
+                    { id: 'gpt-4', label: 'GPT-4' },
+                    { id: 'gpt-4-32k', label: 'GPT-4 32K' },
+                    { id: 'gpt-3.5-turbo-0125', label: 'GPT-3.5 Turbo (Latest)' },
+                    { id: 'gpt-3.5-turbo-16k', label: 'GPT-3.5 Turbo 16K' },
+                    { id: 'dall-e-3', label: 'DALL·E 3' },
+                    { id: 'tts-1-hd', label: 'TTS-1 HD' },
+                    { id: 'whisper-1', label: 'Whisper v3' }
                 ];
             case 'anthropic':
                 return [
-                    { id: 'claude-3-opus', label: 'Claude 3 Opus' },
-                    { id: 'claude-3-sonnet', label: 'Claude 3 Sonnet' },
-                    { id: 'claude-3-haiku', label: 'Claude 3 Haiku' }
+                    { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Latest)' },
+                    { id: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (Latest)' },
+                    { id: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Latest)' },
+                    { id: 'claude-2.1', label: 'Claude 2.1' },
+                    { id: 'claude-2.0', label: 'Claude 2.0' },
+                    { id: 'claude-instant-1.2', label: 'Claude Instant 1.2' }
                 ];
             case 'mistral':
                 return [
-                    { id: 'mistral-large', label: 'Mistral Large' },
-                    { id: 'mistral-medium', label: 'Mistral Medium' },
-                    { id: 'mistral-small', label: 'Mistral Small' }
+                    { id: 'mistral-large-latest', label: 'Mistral Large (Latest)' },
+                    { id: 'mistral-medium-latest', label: 'Mistral Medium (Latest)' },
+                    { id: 'mistral-small-latest', label: 'Mistral Small (Latest)' },
+                    { id: 'mistral-embed', label: 'Mistral Embed' }
+                ];
+            case 'deepseek':
+                return [
+                    { id: 'deepseek-chat-67b', label: 'DeepSeek Chat 67B' },
+                    { id: 'deepseek-coder-33b', label: 'DeepSeek Coder 33B' },
+                    { id: 'deepseek-coder-instruct-33b', label: 'DeepSeek Coder Instruct 33B' },
+                    { id: 'deepseek-math-7b', label: 'DeepSeek Math 7B' },
+                    { id: 'deepseek-vision-base-7b', label: 'DeepSeek Vision Base 7B' }
+                ];
+            case 'cohere':
+                return [
+                    { id: 'command', label: 'Command (Latest)' },
+                    { id: 'command-light', label: 'Command Light' },
+                    { id: 'command-nightly', label: 'Command Nightly' },
+                    { id: 'embed-english-v3.0', label: 'Embed English v3.0' },
+                    { id: 'embed-multilingual-v3.0', label: 'Embed Multilingual v3.0' }
+                ];
+            case 'huggingface':
+                return [
+                    { id: 'meta-llama/Llama-2-70b-chat-hf', label: 'Llama 2 70B Chat' },
+                    { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', label: 'Mixtral 8x7B Instruct' },
+                    { id: 'google/gemma-7b-it', label: 'Gemma 7B Instruct' },
+                    { id: 'stabilityai/stable-diffusion-xl-base-1.0', label: 'Stable Diffusion XL' },
+                    { id: 'openai-whisper/large-v3', label: 'Whisper Large v3' }
+                ];
+            case 'alibaba':
+                return [
+                    { id: 'qwen-max', label: 'Qwen Max' },
+                    { id: 'qwen-max-longcontext', label: 'Qwen Max Long Context' },
+                    { id: 'qwen-plus', label: 'Qwen Plus' },
+                    { id: 'qwen-turbo', label: 'Qwen Turbo' },
+                    { id: 'qwen-audio-turbo', label: 'Qwen Audio Turbo' }
+                ];
+            case 'xai':
+                return [
+                    { id: 'grok-1', label: 'Grok-1' }
                 ];
             default:
                 return [{ id: 'default-model', label: 'Default Model' }];
@@ -380,7 +378,7 @@ export default function Home() {
         setChatSessions(prev => [...prev, newChat]);
         setActiveChatId(newChatId);
         setCurrentFile(null);
-        
+
         // Reset AI SDK state
         setMessages([]);
     };
@@ -404,21 +402,24 @@ export default function Home() {
         // Get user messages for AI resubmission
         const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
         if (userMessages.length > 0) {
-            // Convert to AI SDK message format
+            // Convert to AI SDK message format and include required fields
             const aiFormatMessages = userMessages.map(msg => ({
                 id: msg.id,
                 role: msg.role,
-                content: msg.content
+                content: msg.content,
+                createdAt: msg.createdAt,
+                mode: msg.mode,
+                provider: msg.provider
             }));
-            
+
             // Set current messages and re-submit the last user message
             setMessages(aiFormatMessages);
             const lastUserMsg = userMessages[userMessages.length - 1];
-            
+
             setTimeout(() => {
                 // Trigger submission with the last user message
                 const event = new Event('submit', { bubbles: true, cancelable: true });
-                submitAiMessage(event as unknown as React.FormEvent<HTMLFormElement>);
+                handleMessageSubmit(lastUserMsg.content, activeChat?.mode || mode);
             }, 100);
         }
     };
@@ -709,32 +710,56 @@ export default function Home() {
                     </div>
 
                     <div className="mt-auto mb-2 text-xs text-muted-foreground text-center">
-                        <p>Using Vercel AI SDK</p>
+                        <p>Custom AI Chat Implementation</p>
                     </div>
                 </div>
             </div>
 
             {/* Chat area */}
             <div className="flex-1 flex flex-col h-full">
+                {/* Add a debug section to show messages directly */}
+                <div className="px-4 py-2 bg-yellow-100 text-xs" style={{ display: 'none' }}>
+                    <p>Debug - Active Chat ID: {activeChatId || 'none'}</p>
+                    <p>Chat Sessions: {chatSessions.length}</p>
+                    {activeChat && (
+                        <p>Messages in active chat: {activeChat.messages.length}</p>
+                    )}
+                </div>
+
                 {/* Messages */}
-                <div className={`flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full ${textSize === 'small' ? 'text-sm' : textSize === 'large' ? 'text-lg' : 'text-base'
-                    }`}>
-                    {(!activeChat || activeChat.messages.length === 0) ? (
+                <div className={`flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full ${textSize === 'small' ? 'text-sm' : textSize === 'large' ? 'text-lg' : 'text-base'}`}>
+                    {(!activeChat || !activeChat.messages || activeChat.messages.length === 0) ? (
                         <div className="text-center py-8 text-muted-foreground">
                             <h2 className="text-2xl font-bold mb-2">Welcome to Omni Chat</h2>
                             <p className="max-w-md mx-auto mb-8">
                                 Start a new conversation by typing a message below.
                             </p>
 
-                            {activeChat && ['document', 'image', 'audio'].includes(activeChat.mode) && (
-                                <div className="mt-6">
-                                    <p className="text-sm font-medium">
-                                        {activeChat.mode === 'document' && 'Upload a document to chat about its contents'}
-                                        {activeChat.mode === 'image' && 'Upload an image or provide a description to generate one'}
-                                        {activeChat.mode === 'audio' && 'Upload an audio file or provide text to convert to speech'}
-                                    </p>
-                                </div>
-                            )}
+                            {/* Add test message button */}
+                            <button
+                                onClick={() => {
+                                    if (activeChatId) {
+                                        const testMsg: ChatMessage = {
+                                            id: uuidv4(),
+                                            role: 'assistant' as const,
+                                            content: "This is a test message added directly to verify rendering works.",
+                                            createdAt: new Date(),
+                                            mode: mode,
+                                            provider,
+                                        };
+                                        setChatSessions(prev =>
+                                            prev.map(session =>
+                                                session.id === activeChatId ?
+                                                    { ...session, messages: [...session.messages, testMsg] } :
+                                                    session
+                                            )
+                                        );
+                                    }
+                                }}
+                                className="p-2 mt-4 bg-blue-500 text-white rounded-md"
+                            >
+                                Add Test Message
+                            </button>
                         </div>
                     ) : (
                         <div className="space-y-6">
@@ -756,9 +781,11 @@ export default function Home() {
                     />
                 )}
 
-                {/* Input */}
+                {/* Input component */}
                 <ChatInput
                     onSubmit={(content) => handleMessageSubmit(content, activeChat?.mode || mode)}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
                     isLoading={isLoading}
                     mode={activeChat?.mode || mode}
                 />

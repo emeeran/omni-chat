@@ -19,7 +19,12 @@ export type Provider =
     | 'groq'
     | 'mistral'
     | 'fireworks'
-    | 'google';
+    | 'google'
+    | 'deepseek'
+    | 'cohere'
+    | 'huggingface'
+    | 'alibaba'
+    | 'xai';
 
 export interface ChatMessage {
     id: string;
@@ -43,6 +48,11 @@ export const PROVIDERS = [
     { id: 'anthropic', label: 'Anthropic' },
     { id: 'groq', label: 'Groq' },
     { id: 'mistral', label: 'Mistral' },
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'cohere', label: 'Cohere' },
+    { id: 'huggingface', label: 'Hugging Face' },
+    { id: 'alibaba', label: 'Alibaba (DashScope)' },
+    { id: 'xai', label: 'X AI' },
     { id: 'fireworks', label: 'Fireworks' },
-    { id: 'google', label: 'Google' },
+    { id: 'google', label: 'Google' }
 ] as const;

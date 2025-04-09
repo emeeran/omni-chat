@@ -1,0 +1,64 @@
+# Cursor Rules for Omni-Chat
+
+## Code Organization
+
+- **Main Page Component**: The core application logic is in `src/app/page.tsx`. This component is quite large and should be refactored into smaller components.
+
+- **API Route**: All chat API functionality is in `src/app/api/chat/route.ts` with provider-specific handling.
+
+- **Component Structure**: UI components should be placed in either:
+  - `src/components/chat/` for chat-specific components
+  - `src/components/ui/` for general UI components
+
+- **Utils**: Type definitions and shared utilities are in `src/lib/utils/index.ts`
+
+## Naming Conventions
+
+- **Components**: Use PascalCase for component names (e.g., `ChatInput.tsx`)
+- **Utilities**: Use camelCase for utility functions (e.g., `formatDate`)
+- **Types/Interfaces**: Use PascalCase for type definitions (e.g., `ChatMessage`)
+- **Enums/Constants**: Use UPPERCASE_SNAKE_CASE for constants and SCREAMING_SNAKE_CASE for configuration constants
+
+## State Management
+
+- Each chat session has a unique ID (UUID)
+- Active chat is tracked with `activeChatId` state
+- Chat messages are stored in the `chatSessions` state array
+- Provider/mode settings are stored in separate state variables
+
+## API Integration
+
+- AI providers are accessed through their respective SDKs
+- Each provider implements a streaming response mechanism
+- Provider selection is done through a dropdown UI component
+- API keys should be stored in `.env.local` (already in .gitignore)
+
+## UI Patterns
+
+- Use Tailwind CSS for styling
+- Dark/light mode toggle in the top navigation
+- Settings panel accessible via cog icon
+- Chat list in sidebar with new chat button
+- Input area at the bottom of the screen
+- Messages displayed in a scrollable container
+
+## Error Handling
+
+- Use try/catch blocks for API calls
+- Simulation mode as fallback when API keys are missing
+- Error state rendering for failed requests
+- Console logging for debugging
+
+## Performance Considerations
+
+- Implement virtualization for long chat histories
+- Use optimistic UI updates for better perceived performance
+- Consider chunking large responses
+- Implement proper loading states
+
+## Future Extensions
+
+- When adding new providers, follow the existing pattern in the API route
+- Each provider should have consistent streaming response handling
+- New chat modes should be added to both frontend and backend
+- File processing should be expanded based on provider capabilities 
