@@ -636,7 +636,7 @@ export default function Home() {
                                     <input
                                         type="range"
                                         min="100"
-                                        max="4000"
+                                        max="8000"
                                         step="100"
                                         value={activeChat?.maxTokens || maxTokens}
                                         onChange={(e) => {
