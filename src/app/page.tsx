@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message } from '@/components/chat/message';
 import { ChatInput } from '@/components/chat/chat-input';
@@ -37,54 +37,235 @@ interface ChatSession {
 const sdk = new CustomChatSDK();
 sdk.init();
 
-export default function Home() {
-    // State for active chat ID
+// Extract chat session management to a custom hook
+function useChatSessions() {
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
-
-    // State for chat sessions
     const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+    
+    // Load chat sessions from localStorage on initial load
+    useEffect(() => {
+        try {
+            const savedSessions = localStorage.getItem('chatSessions');
+            if (savedSessions) {
+                const parsed = JSON.parse(savedSessions);
+                setChatSessions(parsed);
+                
+                // Set active chat to the most recent one
+                if (parsed.length > 0) {
+                    setActiveChatId(parsed[0].id);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading chat sessions:', error);
+        }
+    }, []);
+    
+    // Save chat sessions to localStorage when they change
+    useEffect(() => {
+        try {
+            localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
+        } catch (error) {
+            console.error('Error saving chat sessions:', error);
+        }
+    }, [chatSessions]);
+    
+    // Get active chat with memoization
+    const activeChat = useMemo(() => {
+        if (!activeChatId) return null;
+        return chatSessions.find(chat => chat.id === activeChatId) || null;
+    }, [activeChatId, chatSessions]);
+    
+    // Create a new chat
+    const createChat = useCallback((title: string, initialMessage?: ChatMessage) => {
+        const newChat: ChatSession = {
+            id: uuidv4(),
+            title,
+            createdAt: new Date(),
+            messages: initialMessage ? [initialMessage] : [],
+            mode: 'default',
+            provider: 'groq',
+            model: '',
+            persona: 'default',
+            temperature: 0.7,
+            maxTokens: 1000
+        };
+        
+        setChatSessions(prev => [newChat, ...prev]);
+        setActiveChatId(newChat.id);
+        return newChat.id;
+    }, []);
+    
+    // Update a chat
+    const updateChat = useCallback((chatId: string, updates: Partial<ChatSession>) => {
+        setChatSessions(prev => 
+            prev.map(session => 
+                session.id === chatId ? { ...session, ...updates } : session
+            )
+        );
+    }, []);
+    
+    // Delete a chat
+    const deleteChat = useCallback((chatId: string) => {
+        setChatSessions(prev => prev.filter(chat => chat.id !== chatId));
+        if (activeChatId === chatId) {
+            setActiveChatId(null);
+        }
+    }, [activeChatId]);
+    
+    // Add a message to a chat
+    const addMessage = useCallback((chatId: string, message: ChatMessage) => {
+        setChatSessions(prev => 
+            prev.map(session => 
+                session.id === chatId 
+                    ? { 
+                        ...session, 
+                        messages: [...session.messages, message],
+                        title: session.messages.length === 0 
+                            ? (message.content.length > 30 
+                                ? `${message.content.substring(0, 30)}...` 
+                                : message.content)
+                            : session.title
+                    } 
+                    : session
+            )
+        );
+    }, []);
+    
+    return {
+        activeChatId,
+        setActiveChatId,
+        chatSessions,
+        setChatSessions,
+        activeChat,
+        createChat,
+        updateChat,
+        deleteChat,
+        addMessage
+    };
+}
 
-    // State for UI toggles
-    const [showSettings, setShowSettings] = useState(false);
-
-    // State for file upload
-    const [currentFile, setCurrentFile] = useState<File | null>(null);
-
-    // Ref for scrolling to bottom of chat
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    // State for current settings
+// Extract settings management to a custom hook
+function useSettings() {
     const [mode, setMode] = useState<ChatMode>('default');
-    const [provider, setProvider] = useState<Provider>('groq'); // Default to Groq as per spec
-    const [model, setModel] = useState<string>(''); // Will be populated dynamically
+    const [provider, setProvider] = useState<Provider>('groq');
+    const [model, setModel] = useState<string>('');
     const [persona, setPersona] = useState<string>('default');
     const [temperature, setTemperature] = useState(0.7);
     const [maxTokens, setMaxTokens] = useState(1000);
     const [textSize, setTextSize] = useState('medium');
+    
+    // Load settings from localStorage on initial load
+    useEffect(() => {
+        try {
+            const savedSettings = localStorage.getItem('chatSettings');
+            if (savedSettings) {
+                const parsed = JSON.parse(savedSettings);
+                setMode(parsed.mode || 'default');
+                setProvider(parsed.provider || 'groq');
+                setModel(parsed.model || '');
+                setPersona(parsed.persona || 'default');
+                setTemperature(parsed.temperature || 0.7);
+                setMaxTokens(parsed.maxTokens || 1000);
+                setTextSize(parsed.textSize || 'medium');
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }, []);
+    
+    // Save settings to localStorage when they change
+    useEffect(() => {
+        try {
+            localStorage.setItem('chatSettings', JSON.stringify({
+                mode,
+                provider,
+                model,
+                persona,
+                temperature,
+                maxTokens,
+                textSize
+            }));
+        } catch (error) {
+            console.error('Error saving settings:', error);
+        }
+    }, [mode, provider, model, persona, temperature, maxTokens, textSize]);
+    
+    return {
+        mode,
+        setMode,
+        provider,
+        setProvider,
+        model,
+        setModel,
+        persona,
+        setPersona,
+        temperature,
+        setTemperature,
+        maxTokens,
+        setMaxTokens,
+        textSize,
+        setTextSize
+    };
+}
 
-    // Get active chat session with fallback
-    const activeChat = useMemo(() => {
-        if (!activeChatId) return null;
-        const chat = chatSessions.find(chat => chat.id === activeChatId);
-        console.log("Active chat:", activeChatId, chat?.messages?.length || 0);
-        return chat;
-    }, [activeChatId, chatSessions]);
-
-    // State to store messages
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+export default function Home() {
+    // Use custom hooks for state management
+    const {
+        activeChatId,
+        setActiveChatId,
+        chatSessions,
+        activeChat,
+        createChat,
+        updateChat,
+        deleteChat,
+        addMessage
+    } = useChatSessions();
+    
+    const {
+        mode,
+        setMode,
+        provider,
+        setProvider,
+        model,
+        setModel,
+        persona,
+        setPersona,
+        temperature,
+        setTemperature,
+        maxTokens,
+        setMaxTokens,
+        textSize,
+        setTextSize
+    } = useSettings();
+    
+    // State for UI toggles
+    const [showSettings, setShowSettings] = useState(false);
+    
+    // State for file upload
+    const [currentFile, setCurrentFile] = useState<File | null>(null);
+    
+    // Ref for scrolling to bottom of chat
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    
+    // State for message input and loading
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-
+    
+    // Scroll to bottom when messages change
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [activeChat?.messages]);
+    
     // Function to handle message submission - optimized version
     const handleMessageSubmit = async (content: string, currentMode: ChatMode) => {
         // Prevent empty submissions or duplicate submissions during loading
         if (!content.trim() || isLoading) return;
-
+        
         console.log("Submitting message:", content);
         setIsLoading(true);
-
+        
         let chatId = activeChatId;
-
+        
         try {
             // Create user message
             const userMsg: ChatMessage = {
@@ -95,53 +276,21 @@ export default function Home() {
                 mode: currentMode,
                 provider,
             };
-
-            // If no active chat, create one synchronously
+            
+            // If no active chat, create one
             if (!chatId) {
-                chatId = uuidv4();
-                const chatTitle = content.length > 30 ? `${content.substring(0, 30)}...` : content;
-
-                const newChat: ChatSession = {
-                    id: chatId,
-                    title: chatTitle,
-                    createdAt: new Date(),
-                    messages: [userMsg],
-                    mode: currentMode,
-                    provider,
-                    model,
-                    persona,
-                    temperature,
-                    maxTokens,
-                    fileData: currentFile ? {
-                        name: currentFile.name,
-                        type: currentFile.type,
-                        size: currentFile.size,
-                    } : undefined,
-                };
-
-                console.log("Creating new chat:", newChat);
-                setChatSessions(prevChats => [...prevChats, newChat]);
-                setActiveChatId(chatId);
-            } else {
-                // Update existing chat with user message
-                setChatSessions(prevChats =>
-                    prevChats.map(session =>
-                        session.id === chatId
-                            ? {
-                                ...session,
-                                messages: [...session.messages, userMsg],
-                                title: session.messages.length === 0
-                                    ? (content.length > 30 ? `${content.substring(0, 30)}...` : content)
-                                    : session.title,
-                            }
-                            : session
-                    )
+                chatId = createChat(
+                    content.length > 30 ? `${content.substring(0, 30)}...` : content,
+                    userMsg
                 );
+            } else {
+                // Add message to existing chat
+                addMessage(chatId, userMsg);
             }
-
+            
             // Clear input field after submission
             setInput('');
-
+            
             // Generate a response
             const response = await sdk.generateResponse(content, {
                 mode: activeChat?.mode || mode,
@@ -152,9 +301,9 @@ export default function Home() {
                 maxTokens: activeChat?.maxTokens || maxTokens,
                 fileData: activeChat?.fileData,
             });
-
+            
             console.log("Model response:", response);
-
+            
             const assistantMsg: ChatMessage = {
                 id: uuidv4(),
                 role: 'assistant' as const,
@@ -163,17 +312,9 @@ export default function Home() {
                 mode: activeChat?.mode || mode,
                 provider: activeChat?.provider || provider,
             };
-
-            setChatSessions(prevChats =>
-                prevChats.map(session =>
-                    session.id === chatId
-                        ? {
-                            ...session,
-                            messages: [...session.messages, assistantMsg],
-                        }
-                        : session
-                )
-            );
+            
+            // Add assistant message to chat
+            addMessage(chatId, assistantMsg);
         } catch (error) {
             console.error("Error generating response:", error);
             // Add error message to chat
@@ -185,42 +326,150 @@ export default function Home() {
                 mode: activeChat?.mode || mode,
                 provider: activeChat?.provider || provider,
             };
-
-            setChatSessions(prevChats =>
-                prevChats.map(session =>
-                    session.id === chatId
-                        ? {
-                            ...session,
-                            messages: [...session.messages, errorMsg],
-                        }
-                        : session
-                )
-            );
+            
+            // Add error message to chat
+            if (chatId) {
+                addMessage(chatId, errorMsg);
+            }
         } finally {
             setIsLoading(false);
         }
     };
-
-    // Simple direct state update function for new responses (helper)
-    const addResponseToChat = (chatId: string, content: string) => {
-        const responseMsg: ChatMessage = {
-            id: uuidv4(),
-            role: 'assistant' as const,
-            content,
-            createdAt: new Date(),
-            mode: activeChat?.mode || mode,
-            provider,
-        };
-
-        setChatSessions(prev =>
-            prev.map(session =>
-                session.id === chatId ?
-                    { ...session, messages: [...session.messages, responseMsg] } :
-                    session
-            )
-        );
-    };
-
+    
+    // Function to handle retry (regenerate last response)
+    const handleRetry = useCallback(() => {
+        if (!activeChat || activeChat.messages.length < 2) return;
+        
+        // Remove the last assistant message
+        updateChat(activeChatId!, {
+            messages: activeChat.messages.slice(0, -1)
+        });
+        
+        // Get user messages for AI resubmission
+        const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
+        if (userMessages.length > 0) {
+            // Set current messages and re-submit the last user message
+            const lastUserMsg = userMessages[userMessages.length - 1];
+            
+            setTimeout(() => {
+                // Trigger submission with the last user message
+                handleMessageSubmit(lastUserMsg.content, activeChat?.mode || mode);
+            }, 100);
+        }
+    }, [activeChat, activeChatId, handleMessageSubmit, mode, updateChat]);
+    
+    // Function to handle new chat
+    const handleNewChat = useCallback(() => {
+        createChat('New Chat');
+    }, [createChat]);
+    
+    // Function to handle save chat
+    const handleSaveChat = useCallback(() => {
+        if (!activeChat) return;
+        // In a real app, this would save to a database or local storage
+        alert('Chat saved! In a production app, this would save to a database.');
+    }, [activeChat]);
+    
+    // Function to handle load chat
+    const handleLoadChat = useCallback(() => {
+        // In a real app, this would load from a database or local storage
+        alert('In a production app, this would open a dialog to load a saved chat.');
+    }, []);
+    
+    // Function to handle export chat
+    const handleExportChat = useCallback(() => {
+        if (!activeChat) return;
+        
+        const chatData = JSON.stringify(activeChat, null, 2);
+        const blob = new Blob([chatData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${activeChat.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, [activeChat]);
+    
+    // Function to handle file upload
+    const handleFileUpload = useCallback((file: File) => {
+        setCurrentFile(file);
+        
+        // Update the active chat with file data
+        if (activeChatId) {
+            updateChat(activeChatId, {
+                fileData: {
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                }
+            });
+        }
+    }, [activeChatId, updateChat]);
+    
+    // Function to handle mode change
+    const handleModeChange = useCallback((newMode: ChatMode) => {
+        setMode(newMode);
+        
+        // Update mode for active chat if one exists
+        if (activeChatId) {
+            updateChat(activeChatId, { mode: newMode });
+        }
+        
+        // Reset file when changing mode
+        setCurrentFile(null);
+    }, [activeChatId, setMode, updateChat]);
+    
+    // Function to handle provider change
+    const handleProviderChange = useCallback((newProvider: Provider) => {
+        setProvider(newProvider);
+        
+        // Update provider for active chat if one exists
+        if (activeChatId) {
+            updateChat(activeChatId, { provider: newProvider });
+        }
+    }, [activeChatId, setProvider, updateChat]);
+    
+    // Function to handle persona change
+    const handlePersonaChange = useCallback((newPersona: string) => {
+        setPersona(newPersona);
+        
+        // Update persona for active chat if one exists
+        if (activeChatId) {
+            updateChat(activeChatId, { persona: newPersona });
+        }
+    }, [activeChatId, setPersona, updateChat]);
+    
+    // Function to handle temperature change
+    const handleTemperatureChange = useCallback((newValue: number) => {
+        setTemperature(newValue);
+        
+        // Update temperature for active chat if one exists
+        if (activeChatId) {
+            updateChat(activeChatId, { temperature: newValue });
+        }
+    }, [activeChatId, setTemperature, updateChat]);
+    
+    // Function to handle max tokens change
+    const handleMaxTokensChange = useCallback((newValue: number) => {
+        setMaxTokens(newValue);
+        
+        // Update max tokens for active chat if one exists
+        if (activeChatId) {
+            updateChat(activeChatId, { maxTokens: newValue });
+        }
+    }, [activeChatId, setMaxTokens, updateChat]);
+    
+    // Update model when provider changes
+    useEffect(() => {
+        const models = getModelsForProvider(provider);
+        if (models.length > 0) {
+            setModel(models[0].id);
+        }
+    }, [provider, setModel]);
+    
     // Prepare personas list - would normally come from a database or API
     const personas = [
         { id: 'default', label: 'Default Assistant' },
@@ -240,7 +489,7 @@ export default function Home() {
         { id: 'storyteller', label: 'Storyteller' },
         { id: 'custom', label: 'Custom Persona' },
     ];
-
+    
     // Mock list of models - would be fetched dynamically based on selected provider
     const getModelsForProvider = (provider: Provider) => {
         switch (provider) {
@@ -330,209 +579,7 @@ export default function Home() {
                 return [{ id: 'default-model', label: 'Default Model' }];
         }
     };
-
-    // Update model when provider changes
-    useEffect(() => {
-        const models = getModelsForProvider(provider);
-        if (models.length > 0) {
-            setModel(models[0].id);
-        }
-    }, [provider]);
-
-    // Function to handle mode change
-    const handleModeChange = (newMode: ChatMode) => {
-        setMode(newMode);
-
-        // Update mode for active chat if one exists
-        if (activeChatId) {
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
-                        ? { ...session, mode: newMode }
-                        : session
-                )
-            );
-        }
-
-        // Reset file when changing mode
-        setCurrentFile(null);
-    };
-
-    // Function to handle provider change
-    const handleProviderChange = (newProvider: Provider) => {
-        setProvider(newProvider);
-
-        // Update provider for active chat if one exists
-        if (activeChatId) {
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
-                        ? { ...session, provider: newProvider }
-                        : session
-                )
-            );
-        }
-    };
-
-    // Function to handle persona change
-    const handlePersonaChange = (newPersona: string) => {
-        setPersona(newPersona);
-
-        // Update persona for active chat if one exists
-        if (activeChatId) {
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
-                        ? { ...session, persona: newPersona }
-                        : session
-                )
-            );
-        }
-    };
-
-    // Scroll to bottom when messages change
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [activeChat?.messages]);
-
-    // Initialize with a new chat on first load
-    useEffect(() => {
-        if (chatSessions.length === 0) {
-            console.log("Initializing with new chat");
-            handleNewChat();
-        }
-    }, []);
-
-    // Function to create a new chat
-    const handleNewChat = () => {
-        const newChatId = uuidv4();
-
-        const newChat: ChatSession = {
-            id: newChatId,
-            title: 'New Chat',
-            createdAt: new Date(),
-            messages: [],
-            mode,
-            provider,
-            model,
-            persona,
-            temperature,
-            maxTokens
-        };
-
-        console.log("Creating new chat:", newChat);
-        setChatSessions(prev => [...prev, newChat]);
-        setActiveChatId(newChatId);
-        setCurrentFile(null);
-
-        // Reset AI SDK state
-        setMessages([]);
-    };
-
-    // Function to handle retry (regenerate last response)
-    const handleRetry = () => {
-        if (!activeChat || activeChat.messages.length < 2) return;
-
-        // Remove the last assistant message
-        setChatSessions(prev =>
-            prev.map(session =>
-                session.id === activeChatId
-                    ? {
-                        ...session,
-                        messages: session.messages.slice(0, -1)
-                    }
-                    : session
-            )
-        );
-
-        // Get user messages for AI resubmission
-        const userMessages = activeChat.messages.filter(msg => msg.role === 'user');
-        if (userMessages.length > 0) {
-            // Convert to AI SDK message format and include required fields
-            const aiFormatMessages = userMessages.map(msg => ({
-                id: msg.id,
-                role: msg.role,
-                content: msg.content,
-                createdAt: msg.createdAt,
-                mode: msg.mode,
-                provider: msg.provider
-            }));
-
-            // Set current messages and re-submit the last user message
-            setMessages(aiFormatMessages);
-            const lastUserMsg = userMessages[userMessages.length - 1];
-
-            setTimeout(() => {
-                // Trigger submission with the last user message
-                const event = new Event('submit', { bubbles: true, cancelable: true });
-                handleMessageSubmit(lastUserMsg.content, activeChat?.mode || mode);
-            }, 100);
-        }
-    };
-
-    // Function to save the current chat
-    const handleSaveChat = () => {
-        if (!activeChat) return;
-        // In a real app, this would save to a database or local storage
-        alert('Chat saved! In a production app, this would save to a database.');
-    };
-
-    // Function to load a saved chat
-    const handleLoadChat = () => {
-        // In a real app, this would load from a database or local storage
-        alert('In a production app, this would open a dialog to load a saved chat.');
-    };
-
-    // Function to export the current chat
-    const handleExportChat = () => {
-        if (!activeChat) return;
-
-        const chatData = JSON.stringify(activeChat, null, 2);
-        const blob = new Blob([chatData], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${activeChat.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
-    // Function to delete a chat
-    const handleDeleteChat = (chatId: string) => {
-        setChatSessions(prev => prev.filter(chat => chat.id !== chatId));
-
-        if (activeChatId === chatId) {
-            setActiveChatId(null);
-            setCurrentFile(null);
-        }
-    };
-
-    // Function to handle file upload
-    const handleFileUpload = (file: File) => {
-        setCurrentFile(file);
-
-        // Update the active chat with file data
-        if (activeChatId) {
-            setChatSessions(prev =>
-                prev.map(session =>
-                    session.id === activeChatId
-                        ? {
-                            ...session,
-                            fileData: {
-                                name: file.name,
-                                type: file.type,
-                                size: file.size,
-                            }
-                        }
-                        : session
-                )
-            );
-        }
-    };
-
+    
     return (
         <main className="flex h-screen overflow-hidden bg-background">
             {/* Sidebar with scrolling */}
@@ -542,13 +589,13 @@ export default function Home() {
                     <div className="flex flex-col items-center justify-center mb-6">
                         <h1 className="text-2xl font-bold">Omni Chat</h1>
                         <p className="text-sm text-muted-foreground">A versatile AI chat app</p>
-
+                        
                         {/* Theme Toggle Button */}
                         <div className="mt-4">
                             <ThemeToggle />
                         </div>
                     </div>
-
+                    
                     {/* Settings Button */}
                     <div className="pt-2">
                         <button
@@ -558,7 +605,7 @@ export default function Home() {
                             <Cog6ToothIcon className="h-5 w-5" />
                             <span>Settings</span>
                         </button>
-
+                        
                         {/* Settings Drawer */}
                         {showSettings && (
                             <motion.div
@@ -582,7 +629,7 @@ export default function Home() {
                                         <option value="audio">Audio Mode - audio processing</option>
                                     </select>
                                 </div>
-
+                                
                                 {/* Persona Selection */}
                                 <div>
                                     <h2 className="text-sm font-medium mb-2">Persona</h2>
@@ -596,7 +643,7 @@ export default function Home() {
                                             <option key={p.id} value={p.id}>{p.label}</option>
                                         ))}
                                     </select>
-
+                                    
                                     {/* Custom Persona Input (show only if custom is selected) */}
                                     {(activeChat?.persona || persona) === 'custom' && (
                                         <textarea
@@ -606,43 +653,25 @@ export default function Home() {
                                         />
                                     )}
                                 </div>
-
+                                
                                 {/* Temperature Slider */}
                                 <div>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h2 className="text-sm font-medium">Temperature</h2>
-                                        <span className="text-xs text-muted-foreground">{activeChat?.temperature || temperature}</span>
-                                    </div>
+                                    <h2 className="text-sm font-medium mb-2">Temperature</h2>
                                     <input
                                         type="range"
                                         min="0"
                                         max="1"
                                         step="0.1"
                                         value={activeChat?.temperature || temperature}
-                                        onChange={(e) => {
-                                            const newValue = parseFloat(e.target.value);
-                                            setTemperature(newValue);
-                                            
-                                            // Update active chat if it exists
-                                            if (activeChatId) {
-                                                setChatSessions(prev =>
-                                                    prev.map(session =>
-                                                        session.id === activeChatId
-                                                            ? { ...session, temperature: newValue }
-                                                            : session
-                                                    )
-                                                );
-                                            }
-                                        }}
+                                        onChange={(e) => handleTemperatureChange(parseFloat(e.target.value))}
                                         className="w-full"
                                         disabled={isLoading}
                                     />
-                                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                                        <span>Precise</span>
-                                        <span>Creative</span>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        {activeChat?.temperature || temperature}
                                     </div>
                                 </div>
-
+                                
                                 {/* Max Tokens Slider */}
                                 <div>
                                     <h2 className="text-sm font-medium mb-2">Max Tokens</h2>
@@ -651,21 +680,7 @@ export default function Home() {
                                         min="100"
                                         max="4000"
                                         value={activeChat?.maxTokens || maxTokens}
-                                        onChange={(e) => {
-                                            const newValue = Number(e.target.value);
-                                            setMaxTokens(newValue);
-                                            
-                                            // Update active chat if it exists
-                                            if (activeChatId) {
-                                                setChatSessions(prev =>
-                                                    prev.map(session =>
-                                                        session.id === activeChatId
-                                                            ? { ...session, maxTokens: newValue }
-                                                            : session
-                                                    )
-                                                );
-                                            }
-                                        }}
+                                        onChange={(e) => handleMaxTokensChange(Number(e.target.value))}
                                         className="w-full"
                                         disabled={isLoading}
                                     />
@@ -673,7 +688,7 @@ export default function Home() {
                                         {activeChat?.maxTokens || maxTokens} tokens
                                     </div>
                                 </div>
-
+                                
                                 {/* Text Size Option */}
                                 <div>
                                     <h2 className="text-sm font-medium mb-2">Text Size</h2>
@@ -690,7 +705,7 @@ export default function Home() {
                             </motion.div>
                         )}
                     </div>
-
+                    
                     {/* Provider Selection */}
                     <div className="mt-6 space-y-4">
                         <div>
@@ -711,7 +726,7 @@ export default function Home() {
                                 <option value="huggingface">Hugging Face</option>
                             </select>
                         </div>
-
+                        
                         {/* Model Selection */}
                         <div>
                             <h2 className="text-sm font-medium mb-2">Model</h2>
@@ -727,7 +742,7 @@ export default function Home() {
                             </select>
                         </div>
                     </div>
-
+                    
                     {/* Action Buttons */}
                     <div className="mt-6 grid grid-cols-3 gap-2">
                         <button
@@ -761,7 +776,7 @@ export default function Home() {
                             <span>Load</span>
                         </button>
                         <button
-                            onClick={() => activeChat && handleDeleteChat(activeChat.id)}
+                            onClick={() => activeChat && deleteChat(activeChat.id)}
                             className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors text-xs"
                             disabled={!activeChat}
                         >
@@ -777,13 +792,13 @@ export default function Home() {
                             <span>Export</span>
                         </button>
                     </div>
-
+                    
                     <div className="mt-auto mb-2 text-xs text-muted-foreground text-center">
                         <p>Custom AI Chat Implementation</p>
                     </div>
                 </div>
             </div>
-
+            
             {/* Chat area */}
             <div className="flex-1 flex flex-col h-full">
                 {/* Add a debug section to show messages directly */}
@@ -794,7 +809,7 @@ export default function Home() {
                         <p>Messages in active chat: {activeChat.messages.length}</p>
                     )}
                 </div>
-
+                
                 {/* Messages */}
                 <div className={`flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full ${textSize === 'small' ? 'text-sm' : textSize === 'large' ? 'text-lg' : 'text-base'}`}>
                     {(!activeChat || !activeChat.messages || activeChat.messages.length === 0) ? (
@@ -809,7 +824,7 @@ export default function Home() {
                     )}
                     <div ref={messagesEndRef} />
                 </div>
-
+                
                 {/* File upload component for relevant modes */}
                 {activeChat && ['document', 'image', 'audio'].includes(activeChat.mode) && (
                     <FileUpload
@@ -818,7 +833,7 @@ export default function Home() {
                         disabled={isLoading}
                     />
                 )}
-
+                
                 {/* Input component */}
                 <ChatInput
                     onSubmit={(content) => handleMessageSubmit(content, activeChat?.mode || mode)}

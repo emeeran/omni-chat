@@ -129,22 +129,93 @@ function getModel(provider: Provider) {
     }
 }
 
+// Improved caching with a simple in-memory cache
+const responseCache = new Map<string, { response: string, timestamp: number }>();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+
+// Helper function to generate a cache key based on the request
+async function generateCacheKey(request: Request): Promise<string> {
+    try {
+        const body = await request.json();
+        const { messages, provider, mode, model, temperature, maxTokens } = body;
+        
+        // Use only the last few messages to create the cache key
+        const recentMessages = messages.slice(-3);
+        const messagesKey = recentMessages.map(m => `${m.role}:${m.content.substring(0, 50)}`).join('|');
+        
+        // Include all relevant parameters in the cache key
+        return `${provider}:${mode}:${model}:${temperature}:${maxTokens}:${messagesKey}`;
+    } catch (error) {
+        console.error('Error generating cache key:', error);
+        return Date.now().toString(); // Fallback to timestamp if we can't parse request
+    }
+}
+
+// Check if a response is in the cache and still valid
+function getCachedResponse(cacheKey: string): string | null {
+    const cached = responseCache.get(cacheKey);
+    if (!cached) return null;
+    
+    // Check if cache entry is still valid
+    if (Date.now() - cached.timestamp > CACHE_TTL) {
+        responseCache.delete(cacheKey);
+        return null;
+    }
+    
+    return cached.response;
+}
+
+// Store a response in the cache
+function cacheResponse(cacheKey: string, response: string): void {
+    responseCache.set(cacheKey, { response, timestamp: Date.now() });
+    
+    // Clean up old cache entries if cache gets too large
+    if (responseCache.size > 1000) {
+        const now = Date.now();
+        for (const [key, value] of responseCache.entries()) {
+            if (now - value.timestamp > CACHE_TTL) {
+                responseCache.delete(key);
+            }
+        }
+    }
+}
+
 export async function POST(req: Request) {
     console.log("API route called - processing request");
     
     // Add caching headers to the response
     const cacheKey = await generateCacheKey(req.clone());
     
+    // Check cache first
+    const cachedResponse = getCachedResponse(cacheKey);
+    if (cachedResponse) {
+        console.log("Returning cached response");
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(encoder.encode(cachedResponse));
+                controller.close();
+            }
+        });
+        
+        const response = new StreamingTextResponse(stream);
+        response.headers.set('X-Cache', 'HIT');
+        response.headers.set('X-Cache-Key', cacheKey);
+        return response;
+    }
+    
     try {
         // Parse the request body
         const body = await req.json();
-        const { messages, provider, mode, model } = body;
+        const { messages, provider, mode, model, temperature, maxTokens } = body;
         
         console.log("Received request body:", JSON.stringify({
             messageCount: messages?.length || 0,
             provider,
             mode,
-            model
+            model,
+            temperature,
+            maxTokens
         }, null, 2));
 
         if (!messages || !Array.isArray(messages)) {
@@ -198,19 +269,14 @@ export async function POST(req: Request) {
                 break;
         }
 
-        // Format messages for the API call - ensure non-empty messages
+        // Format messages for API call
         const formattedMessages = [
             { role: 'system', content: systemMessage },
-            ...messages.filter(m => m.content && m.content.trim()).map(message => ({
+            ...messages.map(message => ({
                 role: message.role,
                 content: message.content
             }))
         ];
-
-        // If no user messages, add a default one to avoid errors
-        if (!formattedMessages.some(m => m.role === 'user')) {
-            formattedMessages.push({ role: 'user', content: 'Hello' });
-        }
 
         let stream;
         const selectedModel = model || getModel(preferredProvider);
@@ -317,6 +383,34 @@ export async function POST(req: Request) {
                     stream = OpenAIStream(fallbackResponse);
                     break;
             }
+            
+            // For non-streaming responses, cache the result
+            if (stream && !stream.locked) {
+                const reader = stream.getReader();
+                let fullResponse = '';
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = new TextDecoder().decode(value);
+                    fullResponse += chunk;
+                }
+                
+                // Cache the complete response
+                cacheResponse(cacheKey, fullResponse);
+                
+                // Create a new stream with the cached response
+                const encoder = new TextEncoder();
+                const newStream = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(encoder.encode(fullResponse));
+                        controller.close();
+                    }
+                });
+                
+                stream = newStream;
+            }
         } catch (error) {
             console.error(`Error calling ${preferredProvider} API:`, error);
             
@@ -353,35 +447,12 @@ export async function POST(req: Request) {
         response.headers.set('X-Provider', preferredProvider);
         response.headers.set('X-Model', selectedModel);
         response.headers.set('X-Mode', mode);
-        response.headers.set('Cache-Control', 'public, s-maxage=10');
+        response.headers.set('Cache-Control', 'public, s-maxage=3600');
         response.headers.set('X-Cache-Key', cacheKey);
         
         return response;
-
     } catch (error) {
-        console.error('Error in chat API:', error);
-        return new Response(`An error occurred while processing your request: ${(error as Error).message}. Check your API configuration.`, { 
-            status: 500,
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-    }
-}
-
-// Helper function to generate a cache key based on the request
-async function generateCacheKey(request: Request): Promise<string> {
-    try {
-        const body = await request.json();
-        const { messages, provider, mode, model } = body;
-        
-        // Use only the last few messages to create the cache key
-        const recentMessages = messages.slice(-3);
-        const messagesKey = recentMessages.map(m => `${m.role}:${m.content.substring(0, 50)}`).join('|');
-        
-        return `${provider}:${mode}:${model}:${messagesKey}`;
-    } catch (error) {
-        console.error('Error generating cache key:', error);
-        return Date.now().toString(); // Fallback to timestamp if we can't parse request
+        console.error("Error in API route:", error);
+        return new Response(`Error: ${(error as Error).message}`, { status: 500 });
     }
 }
