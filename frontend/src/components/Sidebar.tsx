@@ -21,9 +21,13 @@ type SidebarProps = {
   chats: ChatSummary[];
   onNewChat: () => void;
   onChatSelect: (chatId: string) => void;
+  onDeleteChat: (chatId: string) => void;
+  onSaveChat: (chatId: string) => void;
+  onExportChat: (chatId: string) => void;
+  onRetryChat: (chatId: string) => void;
 };
 
-export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps) {
+export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -223,25 +227,12 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
 
   // Handle retry button click - resubmit the last message
   const handleRetry = () => {
-    if (!currentChatId) return;
-
-    // Use browser's history API to reload the current chat,
-    // which will effectively retry the last message
-    window.location.reload();
+    if (currentChatId) onRetryChat(currentChatId);
   };
 
   // Handle save button click
-  const handleSave = async () => {
-    if (!currentChatId) return;
-
-    try {
-      // You can implement custom saving functionality here
-      // For now, we'll just show an alert
-      alert(`Chat ${currentChatId} saved!`);
-      // In a real implementation, you would call an API endpoint to save the chat
-    } catch (error) {
-      console.error('Error saving chat:', error);
-    }
+  const handleSave = () => {
+    if (currentChatId) onSaveChat(currentChatId);
   };
 
   // Handle load button click
@@ -251,31 +242,13 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
   };
 
   // Handle delete button click
-  const handleDelete = async () => {
-    if (!currentChatId || !confirm('Are you sure you want to delete this chat?')) return;
-
-    try {
-      // You can implement a delete API call here
-      alert(`Chat ${currentChatId} deleted!`);
-      // After successful deletion, navigate to home or create a new chat
-      onNewChat();
-    } catch (error) {
-      console.error('Error deleting chat:', error);
-    }
+  const handleDelete = () => {
+    if (currentChatId && confirm('Are you sure you want to delete this chat?')) onDeleteChat(currentChatId);
   };
 
   // Handle export button click
-  const handleExport = async () => {
-    if (!currentChatId) return;
-
-    try {
-      // Implement export functionality
-      // For now, just show an alert
-      alert(`Exporting chat ${currentChatId}`);
-      // In a real implementation, you would generate a file for download
-    } catch (error) {
-      console.error('Error exporting chat:', error);
-    }
+  const handleExport = () => {
+    if (currentChatId) onExportChat(currentChatId);
   };
 
   // Handle voice input button click

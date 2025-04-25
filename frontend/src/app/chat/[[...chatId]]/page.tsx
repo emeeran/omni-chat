@@ -4,18 +4,19 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import ChatPanel from '@/components/ChatPanel';
-import { Chat, ChatSummary, getChat, getChats } from '@/lib/api';
+import { Chat, ChatSummary, getChat, getChats, deleteChat, exportChat, saveChat, retryChat } from '@/lib/api';
+import { saveAs } from 'file-saver';
 
 export default function ChatPage() {
   const params = useParams();
   const router = useRouter();
   const chatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [currentChat, setCurrentChat] = useState<Chat | null>(null);
-  
+
   // Fetch chat list
   useEffect(() => {
     async function fetchChats() {
@@ -28,17 +29,17 @@ export default function ChatPage() {
         setChats([]);
       }
     }
-    
+
     fetchChats();
   }, []);
-  
+
   // Fetch specific chat or create a new one
   useEffect(() => {
     async function fetchOrCreateChat() {
       try {
         setIsLoading(true);
         setError(null);
-        
+
         if (chatId) {
           try {
             const chat = await getChat(chatId);
@@ -46,7 +47,7 @@ export default function ChatPage() {
           } catch (error) {
             console.error('Error fetching chat:', error);
             setError('Failed to load the conversation. The chat may not exist or the server might be offline.');
-            
+
             // Create a fallback chat if API is unavailable
             setCurrentChat({
               chat_id: chatId || `new-${Date.now()}`,
@@ -77,22 +78,62 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     }
-    
+
     fetchOrCreateChat();
   }, [chatId, router]);
-  
+
   const handleNewChat = () => {
     router.push('/chat');
   };
-  
+
   const handleChatSelect = (id: string) => {
     router.push(`/chat/${id}`);
   };
-  
+
   const handleUpdateChat = (updatedChat: Chat) => {
     setCurrentChat(updatedChat);
   };
-  
+
+  // Add handler for deleting a chat
+  const handleDeleteChat = async (id: string) => {
+    try {
+      const res = await deleteChat(id);
+      if (res && res.success) {
+        setChats((prev) => prev.filter((c) => c.chat_id !== id));
+        if (currentChat && currentChat.chat_id === id) {
+          handleNewChat();
+        }
+      } else {
+        alert('Failed to delete chat.');
+      }
+    } catch (err) {
+      alert('Failed to delete chat.');
+    }
+  };
+
+  // Add handler for saving a chat
+  const handleSaveChat = async (id: string) => {
+    alert('Chat saved!');
+  };
+
+  // Add handler for exporting a chat
+  const handleExportChat = async (id: string) => {
+    try {
+      const data = await exportChat(id);
+      if (!data) throw new Error('No data');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      saveAs(blob, `chat-${id}.json`);
+    } catch (err) {
+      alert('Failed to export chat.');
+    }
+  };
+
+  // Add handler for retrying a chat
+  const handleRetryChat = async (id: string) => {
+    // For now, just reload the page to retry
+    window.location.reload();
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -100,7 +141,7 @@ export default function ChatPage() {
       </div>
     );
   }
-  
+
   if (error && !currentChat) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -117,15 +158,19 @@ export default function ChatPage() {
       </div>
     );
   }
-  
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-dark-900">
       <Sidebar
         chats={chats}
         onNewChat={handleNewChat}
         onChatSelect={handleChatSelect}
+        onDeleteChat={handleDeleteChat}
+        onSaveChat={handleSaveChat}
+        onExportChat={handleExportChat}
+        onRetryChat={handleRetryChat}
       />
-      
+
       <main className="flex-1 flex flex-col overflow-hidden">
         {currentChat && (
           <ChatPanel
@@ -136,4 +181,4 @@ export default function ChatPage() {
       </main>
     </div>
   );
-} 
+}
