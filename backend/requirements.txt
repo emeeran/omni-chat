@@ -1,0 +1,10 @@
+flask==2.3.3
+flask-cors==4.0.0
+python-dotenv==1.0.0
+requests==2.31.0
+openai==1.7.2
+anthropic==0.8.1
+cohere==4.37
+tiktoken==0.5.1
+mistralai==0.0.12
+python-dateutil==2.8.2 
