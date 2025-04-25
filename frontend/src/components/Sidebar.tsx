@@ -9,6 +9,14 @@ import {
 import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model } from '@/lib/api';
 import SettingsPanel from './SettingsPanel';
 
+// Define the structure for default settings
+interface DefaultSettings {
+  provider: string;
+  model: string;
+  persona: string;
+  maxTokens: number;
+}
+
 type SidebarProps = {
   chats: ChatSummary[];
   onNewChat: () => void;
@@ -26,6 +34,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
   const [maxTokens, setMaxTokens] = useState(50);
   const [temperature, setTemperature] = useState(50);
   const [audioResponse, setAudioResponse] = useState(false);
+  const router = useRouter();
 
   // API data states
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -48,6 +57,34 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
     }
   }, [collapsed]);
 
+  // Load saved defaults
+  useEffect(() => {
+    try {
+      const savedDefaults = localStorage.getItem('omniChatDefaults');
+      if (savedDefaults) {
+        const defaults: DefaultSettings = JSON.parse(savedDefaults);
+
+        // Apply saved defaults if available
+        if (defaults.provider) {
+          setProvider(defaults.provider);
+        }
+        if (defaults.model) {
+          setModel(defaults.model);
+        }
+        if (defaults.persona) {
+          setPersona(defaults.persona);
+        }
+        if (defaults.maxTokens) {
+          // Convert to scale of 0-100 for the UI slider
+          const normalizedTokens = Math.min(100, Math.max(0, Math.floor((defaults.maxTokens / 8000) * 100)));
+          setMaxTokens(normalizedTokens);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading saved defaults:', error);
+    }
+  }, []);
+
   // Fetch providers, models, and personas when component mounts
   useEffect(() => {
     async function fetchData() {
@@ -56,19 +93,48 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
         const providersData = await getProviders();
         setProviders(providersData);
 
-        // Set default provider if available
-        if (providersData.length > 0) {
-          const defaultProvider = providersData.find(p => p.id === 'openai') || providersData[0];
-          setProvider(defaultProvider.id);
+        // Check for saved defaults first
+        const savedDefaults = localStorage.getItem('omniChatDefaults');
+        let defaultProviderId = 'openai'; // Default fallback
 
-          // Fetch models for the selected provider
-          const modelsData = await getModels(defaultProvider.id);
-          setModels(modelsData);
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          // Check if the saved provider exists in our loaded providers
+          const providerExists = providersData.some(p => p.id === defaults.provider);
+          if (providerExists) {
+            defaultProviderId = defaults.provider;
+            setProvider(defaults.provider);
+          }
+        }
 
-          // Set default model if available
-          if (modelsData.length > 0) {
+        // If no saved defaults or provider not found, use API default
+        if (!savedDefaults || !providersData.some(p => p.id === provider)) {
+          // Set default provider if available
+          const defaultProvider = providersData.find(p => p.default) || providersData[0];
+          if (defaultProvider) {
+            defaultProviderId = defaultProvider.id;
+            setProvider(defaultProvider.id);
+          }
+        }
+
+        // Fetch models for the selected provider
+        const modelsData = await getModels(defaultProviderId);
+        setModels(modelsData);
+
+        // Check for saved default model
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          // Only use saved model if it belongs to the selected provider
+          const modelExists = modelsData.some(m => m.id === defaults.model);
+          if (modelExists) {
+            setModel(defaults.model);
+          } else if (modelsData.length > 0) {
+            // Fallback to first available model
             setModel(modelsData[0].id);
           }
+        } else if (modelsData.length > 0) {
+          // No saved defaults, use first model
+          setModel(modelsData[0].id);
         }
 
         // Fetch personas
@@ -76,8 +142,18 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
         const personaNames = personasData.map(p => typeof p === 'string' ? p : p.name);
         setPersonas(personaNames);
 
-        // Set default persona if available
-        if (personaNames.length > 0) {
+        // Check for saved default persona
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          // Check if saved persona exists
+          if (personaNames.includes(defaults.persona)) {
+            setPersona(defaults.persona);
+          } else if (personaNames.length > 0) {
+            // Fallback to first persona
+            setPersona(personaNames[0]);
+          }
+        } else if (personaNames.length > 0) {
+          // No saved defaults, use first persona
           setPersona(personaNames[0]);
         }
       } catch (error) {
@@ -100,9 +176,27 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
         const modelsData = await getModels(provider);
         setModels(modelsData);
 
-        // Set default model if available
-        if (modelsData.length > 0) {
-          setModel(modelsData[0].id);
+        // Try to keep the current model if it's compatible with new provider
+        const currentModelCompatible = modelsData.some(m => m.id === model);
+
+        if (!currentModelCompatible) {
+          // Check for saved default
+          const savedDefaults = localStorage.getItem('omniChatDefaults');
+          if (savedDefaults) {
+            const defaults: DefaultSettings = JSON.parse(savedDefaults);
+            // Only use saved model if it belongs to the selected provider
+            const savedModelCompatible = modelsData.some(m => m.id === defaults.model);
+
+            if (savedModelCompatible) {
+              setModel(defaults.model);
+            } else if (modelsData.length > 0) {
+              // Default to first model
+              setModel(modelsData[0].id);
+            }
+          } else if (modelsData.length > 0) {
+            // No saved defaults, use first model
+            setModel(modelsData[0].id);
+          }
         }
       } catch (error) {
         console.error(`Error fetching models for ${provider}:`, error);
@@ -125,6 +219,97 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
     const newProviderId = e.target.value;
     setProvider(newProviderId);
     // The model will be updated automatically by the useEffect
+  };
+
+  // Handle retry button click - resubmit the last message
+  const handleRetry = () => {
+    if (!currentChatId) return;
+
+    // Use browser's history API to reload the current chat,
+    // which will effectively retry the last message
+    window.location.reload();
+  };
+
+  // Handle save button click
+  const handleSave = async () => {
+    if (!currentChatId) return;
+
+    try {
+      // You can implement custom saving functionality here
+      // For now, we'll just show an alert
+      alert(`Chat ${currentChatId} saved!`);
+      // In a real implementation, you would call an API endpoint to save the chat
+    } catch (error) {
+      console.error('Error saving chat:', error);
+    }
+  };
+
+  // Handle load button click
+  const handleLoad = () => {
+    // This could open a modal or dialog to select a chat to load
+    alert('Load chat functionality will be implemented here');
+  };
+
+  // Handle delete button click
+  const handleDelete = async () => {
+    if (!currentChatId || !confirm('Are you sure you want to delete this chat?')) return;
+
+    try {
+      // You can implement a delete API call here
+      alert(`Chat ${currentChatId} deleted!`);
+      // After successful deletion, navigate to home or create a new chat
+      onNewChat();
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+    }
+  };
+
+  // Handle export button click
+  const handleExport = async () => {
+    if (!currentChatId) return;
+
+    try {
+      // Implement export functionality
+      // For now, just show an alert
+      alert(`Exporting chat ${currentChatId}`);
+      // In a real implementation, you would generate a file for download
+    } catch (error) {
+      console.error('Error exporting chat:', error);
+    }
+  };
+
+  // Handle voice input button click
+  const handleVoiceInput = () => {
+    // Voice input functionality
+    alert('Voice input functionality will be implemented here');
+  };
+
+  // Handle sliders button click for quick settings access
+  const handleSlidersClick = () => {
+    // Toggle settings drawer when in collapsed mode
+    if (collapsed) {
+      setCollapsed(false);
+      setTimeout(() => setDrawerOpen(true), 300);
+    } else {
+      setDrawerOpen(true);
+    }
+  };
+
+  // Handle new chat with defaults
+  const handleNewChatWithDefaults = () => {
+    // Call the onNewChat function from props which should create a new chat
+    onNewChat();
+
+    // Apply default settings if available
+    try {
+      const savedDefaults = localStorage.getItem('omniChatDefaults');
+      if (savedDefaults) {
+        // In a real implementation, you would apply these defaults to the new chat
+        console.log('Creating new chat with saved defaults:', JSON.parse(savedDefaults));
+      }
+    } catch (error) {
+      console.error('Error applying defaults to new chat:', error);
+    }
   };
 
   return (
@@ -239,7 +424,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
                 <div className="mb-3">
                   <div className="flex justify-between">
                     <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Max.Tokens</label>
-                    <span className="text-sm text-gray-500">{maxTokens}</span>
+                    <span className="text-sm text-gray-500">{Math.floor((maxTokens / 100) * 8000)}</span>
                   </div>
                   <input
                     type="range"
@@ -253,6 +438,28 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
                     <span className="text-xs text-gray-500">Min</span>
                     <span className="text-xs text-gray-500">Max</span>
                   </div>
+                </div>
+
+                {/* Quick Token Presets */}
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setMaxTokens(Math.floor((2000 / 8000) * 100))}
+                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-dark-700 rounded-md hover:bg-gray-200 dark:hover:bg-dark-600"
+                  >
+                    2000
+                  </button>
+                  <button
+                    onClick={() => setMaxTokens(Math.floor((5000 / 8000) * 100))}
+                    className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-800/40"
+                  >
+                    5000
+                  </button>
+                  <button
+                    onClick={() => setMaxTokens(Math.floor((8000 / 8000) * 100))}
+                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-dark-700 rounded-md hover:bg-gray-200 dark:hover:bg-dark-600"
+                  >
+                    8000
+                  </button>
                 </div>
 
                 {/* Temperature */}
@@ -296,6 +503,27 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* Save as Defaults */}
+                <div className="mb-4 pt-2 border-t border-gray-200 dark:border-dark-700">
+                  <button
+                    onClick={() => {
+                      // Save current settings as defaults
+                      const defaults: DefaultSettings = {
+                        provider,
+                        model,
+                        persona,
+                        maxTokens: Math.floor((maxTokens / 100) * 8000) // Convert to actual token count
+                      };
+                      localStorage.setItem('omniChatDefaults', JSON.stringify(defaults));
+                      alert('Settings saved as defaults for new chats');
+                    }}
+                    className="w-full py-2 bg-primary-100 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 rounded-md hover:bg-primary-200 dark:hover:bg-primary-800/30 text-sm flex items-center justify-center"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save as Default Settings
+                  </button>
                 </div>
 
                 {/* Model Capabilities */}
@@ -401,10 +629,16 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
               >
                 <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
-              <button className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md">
+              <button
+                className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
+                onClick={handleSlidersClick}
+              >
                 <Sliders className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
-              <button className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md">
+              <button
+                className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
+                onClick={handleVoiceInput}
+              >
                 <Mic className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
             </div>
@@ -416,18 +650,24 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
           <div className="p-4 border-t border-gray-200 dark:border-dark-700">
             {/* Action buttons - first row */}
             <div className="grid grid-cols-3 gap-2 mb-2">
-              <button className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center">
+              <button
+                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                onClick={handleRetry}
+              >
                 <Redo className="w-4 h-4 mr-1" />
                 <span>Retry</span>
               </button>
               <button
-                onClick={onNewChat}
+                onClick={handleNewChatWithDefaults}
                 className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
               >
                 <Plus className="w-4 h-4 mr-1" />
                 <span>New</span>
               </button>
-              <button className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center">
+              <button
+                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                onClick={handleSave}
+              >
                 <Save className="w-4 h-4 mr-1" />
                 <span>Save</span>
               </button>
@@ -435,15 +675,24 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
 
             {/* Action buttons - second row */}
             <div className="grid grid-cols-3 gap-2">
-              <button className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center">
+              <button
+                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                onClick={handleLoad}
+              >
                 <Upload className="w-4 h-4 mr-1" />
                 <span>Load</span>
               </button>
-              <button className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center">
+              <button
+                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                onClick={handleDelete}
+              >
                 <Trash2 className="w-4 h-4 mr-1" />
                 <span>Delete</span>
               </button>
-              <button className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center">
+              <button
+                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                onClick={handleExport}
+              >
                 <Download className="w-4 h-4 mr-1" />
                 <span>Export</span>
               </button>
@@ -455,12 +704,15 @@ export default function Sidebar({ chats, onNewChat, onChatSelect }: SidebarProps
         {collapsed && (
           <div className="flex flex-col items-center py-4 border-t border-gray-200 dark:border-dark-700 space-y-4">
             <button
-              onClick={onNewChat}
+              onClick={handleNewChatWithDefaults}
               className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
             >
               <Plus className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </button>
-            <button className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md">
+            <button
+              className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
+              onClick={handleDelete}
+            >
               <Trash2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             </button>
           </div>

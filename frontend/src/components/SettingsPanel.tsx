@@ -1,10 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X, Save } from 'lucide-react';
 import { Provider, Model, Persona, getProviders, getModels, getPersonas } from '@/lib/api';
 
 type SettingsPanelProps = {
   onClose: () => void;
 };
+
+// Define the structure for default settings
+interface DefaultSettings {
+  provider: string;
+  model: string;
+  persona: string;
+  maxTokens: number;
+}
 
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [mode, setMode] = useState('chat');
@@ -17,6 +25,44 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(2000);
+  const [saveAsDefaults, setSaveAsDefaults] = useState<boolean>(false);
+  const [defaultsSaved, setDefaultsSaved] = useState<boolean>(false);
+
+  // Load any saved defaults on mount
+  useEffect(() => {
+    const loadSavedDefaults = () => {
+      try {
+        const savedDefaults = localStorage.getItem('omniChatDefaults');
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          // We'll apply these defaults if the provider and model exist in our loaded data
+          if (defaults.provider) {
+            setSelectedProvider(defaults.provider);
+          }
+          if (defaults.persona) {
+            setSelectedPersona(defaults.persona);
+          }
+          if (defaults.maxTokens) {
+            setMaxTokens(defaults.maxTokens);
+          }
+          // Model will be set after models are loaded for the provider
+          return defaults;
+        }
+      } catch (error) {
+        console.error('Error loading saved defaults:', error);
+      }
+      return null;
+    };
+
+    const defaults = loadSavedDefaults();
+    return () => {
+      // Remember the model from defaults for when provider models load
+      if (defaults?.model) {
+        const rememberedModel = defaults.model;
+        // We'll use this in the provider models useEffect
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const loadProviders = async () => {
@@ -24,10 +70,24 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         const providersData = await getProviders();
         setProviders(providersData);
 
-        // Set default provider if available
-        const defaultProvider = providersData.find(p => p.default);
-        if (defaultProvider) {
-          setSelectedProvider(defaultProvider.id);
+        // Set default provider if available or use saved default
+        const savedDefaults = localStorage.getItem('omniChatDefaults');
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          const providerExists = providersData.some(p => p.id === defaults.provider);
+          if (providerExists) {
+            setSelectedProvider(defaults.provider);
+          } else {
+            const defaultProvider = providersData.find(p => p.default);
+            if (defaultProvider) {
+              setSelectedProvider(defaultProvider.id);
+            }
+          }
+        } else {
+          const defaultProvider = providersData.find(p => p.default);
+          if (defaultProvider) {
+            setSelectedProvider(defaultProvider.id);
+          }
         }
       } catch (error) {
         console.error('Error loading providers:', error);
@@ -45,12 +105,32 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         const modelsData = await getModels(selectedProvider);
         setModels(modelsData);
 
-        // Set default model if available
-        const defaultModel = modelsData.find(m => m.default);
-        if (defaultModel) {
-          setSelectedModel(defaultModel.id);
-        } else if (modelsData.length > 0) {
-          setSelectedModel(modelsData[0].id);
+        // Check for saved defaults
+        const savedDefaults = localStorage.getItem('omniChatDefaults');
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          // Only apply the default model if it belongs to the selected provider
+          const modelExists = modelsData.some(m => m.id === defaults.model && m.provider === selectedProvider);
+
+          if (modelExists) {
+            setSelectedModel(defaults.model);
+          } else {
+            // Fall back to provider default
+            const defaultModel = modelsData.find(m => m.default);
+            if (defaultModel) {
+              setSelectedModel(defaultModel.id);
+            } else if (modelsData.length > 0) {
+              setSelectedModel(modelsData[0].id);
+            }
+          }
+        } else {
+          // No saved defaults, use normal behavior
+          const defaultModel = modelsData.find(m => m.default);
+          if (defaultModel) {
+            setSelectedModel(defaultModel.id);
+          } else if (modelsData.length > 0) {
+            setSelectedModel(modelsData[0].id);
+          }
         }
       } catch (error) {
         console.error('Error loading models:', error);
@@ -65,6 +145,17 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       try {
         const personasData = await getPersonas();
         setPersonas(personasData);
+
+        // Check for saved defaults
+        const savedDefaults = localStorage.getItem('omniChatDefaults');
+        if (savedDefaults) {
+          const defaults: DefaultSettings = JSON.parse(savedDefaults);
+          const personaExists = personasData.some(p => p.id === defaults.persona);
+
+          if (personaExists) {
+            setSelectedPersona(defaults.persona);
+          }
+        }
       } catch (error) {
         console.error('Error loading personas:', error);
       }
@@ -140,6 +231,40 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         }
       }
     }
+  };
+
+  // Handle saving settings as defaults
+  const saveDefaults = () => {
+    try {
+      const defaults: DefaultSettings = {
+        provider: selectedProvider,
+        model: selectedModel,
+        persona: selectedPersona,
+        maxTokens: maxTokens,
+      };
+
+      localStorage.setItem('omniChatDefaults', JSON.stringify(defaults));
+      setDefaultsSaved(true);
+
+      // Show success message briefly
+      setTimeout(() => {
+        setDefaultsSaved(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving defaults:', error);
+    }
+  };
+
+  // Handle applying settings
+  const applySettings = () => {
+    // Apply the current settings
+
+    // Also save as defaults if that option is checked
+    if (saveAsDefaults) {
+      saveDefaults();
+    }
+
+    onClose();
   };
 
   return (
@@ -262,7 +387,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           <input
             type="range"
             min="500"
-            max="4000"
+            max="8000"
             step="100"
             value={maxTokens}
             onChange={(e) => setMaxTokens(parseInt(e.target.value))}
@@ -272,6 +397,50 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <span>Shorter</span>
             <span>Longer</span>
           </div>
+        </div>
+
+        {/* Fixed value for Max Tokens option (5000) */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setMaxTokens(5000)}
+            className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/40"
+          >
+            Set 5000 tokens
+          </button>
+          <span className="text-xs text-gray-500">
+            Quick setting for recommended token limit
+          </span>
+        </div>
+
+        {/* Save as Defaults Option */}
+        <div className="flex items-center mt-4 py-2 border-t border-gray-200 dark:border-dark-700">
+          <input
+            type="checkbox"
+            id="saveDefaults"
+            checked={saveAsDefaults}
+            onChange={(e) => setSaveAsDefaults(e.target.checked)}
+            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+          />
+          <label htmlFor="saveDefaults" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+            Save these settings as defaults for new chats
+          </label>
+        </div>
+
+        {/* Save Defaults Button */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={saveDefaults}
+            className="flex items-center text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+          >
+            <Save className="w-4 h-4 mr-1" />
+            Save current settings as defaults
+          </button>
+
+          {defaultsSaved && (
+            <span className="text-xs text-green-600 dark:text-green-400 animate-fadeOut">
+              ✓ Defaults saved!
+            </span>
+          )}
         </div>
       </div>
 
@@ -283,7 +452,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           Cancel
         </button>
         <button
-          onClick={onClose}
+          onClick={applySettings}
           className="py-2 px-4 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-sm"
         >
           Apply Settings
