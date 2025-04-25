@@ -1,0 +1,20 @@
+{
+  "name": "omni-chat",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && bash start.sh",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "install:all": "npm install && cd frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm run start"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "OmniChat application with Next.js frontend and Python Flask backend"
+} 

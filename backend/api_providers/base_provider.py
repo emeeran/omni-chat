@@ -1,10 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BaseProvider(ABC):
     """
     Abstract base class for all AI providers
     """
+    
+    def __init__(self, mock_responses=False):
+        self.mock_responses = mock_responses
+        logger.info(f"Initializing {self.__class__.__name__} with mock_responses={mock_responses}")
     
     @abstractmethod
     def get_models(self) -> List[Dict[str, Any]]:
@@ -60,4 +67,40 @@ class BaseProvider(ABC):
         Returns:
             Response containing the generated image
         """
-        pass 
+        pass
+        
+    def generate_mock_response(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        """
+        Generate a mock response for chat completions
+        
+        Args:
+            messages: List of message dictionaries (role, content)
+            
+        Returns:
+            A mock response dictionary
+        """
+        # Get the last user message
+        last_message = None
+        for msg in reversed(messages):
+            if msg["role"] == "user":
+                last_message = msg["content"]
+                break
+        
+        if not last_message:
+            last_message = "No user message found"
+        
+        # Generate a simple mock response
+        return {
+            "id": "mock-response-id",
+            "created": 1715008000,
+            "model": "mock-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"This is a mock response to: {last_message[:50]}{'...' if len(last_message) > 50 else ''}"
+                    }
+                }
+            ]
+        } 

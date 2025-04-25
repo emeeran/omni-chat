@@ -7,4 +7,5 @@ anthropic==0.8.1
 cohere==4.37
 tiktoken==0.5.1
 mistralai==0.0.12
-python-dateutil==2.8.2 
+python-dateutil==2.8.2
+google-generativeai==0.3.1

@@ -173,13 +173,14 @@ class DocumentProcessor:
             logger.error(f"Error listing documents: {e}")
             return []
     
-    def search_documents(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def search_documents(self, query: str, top_k: int = 3, doc_ids: List[str] = None) -> List[Dict[str, Any]]:
         """
-        Simple keyword search across all document chunks
+        Simple keyword search across document chunks, optionally filtered by document IDs
         
         Args:
             query: The search query
             top_k: Number of top results to return
+            doc_ids: Optional list of document IDs to search in
             
         Returns:
             List of dictionaries with matching chunks
@@ -195,6 +196,13 @@ class DocumentProcessor:
             
             for filename in os.listdir(self.chunks_dir):
                 if filename.endswith('.json'):
+                    # If doc_ids is provided, only search in those documents
+                    if doc_ids:
+                        # Extract doc_id from filename (format is "doc_id_chunk_id.json")
+                        file_doc_id = filename.split('_')[0]
+                        if file_doc_id not in doc_ids:
+                            continue
+                    
                     chunk_path = os.path.join(self.chunks_dir, filename)
                     
                     with open(chunk_path, 'r') as f:

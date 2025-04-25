@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Provider, Model, Persona, getProviders, getModels, getPersonas } from '@/lib/api';
 
@@ -23,7 +23,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       try {
         const providersData = await getProviders();
         setProviders(providersData);
-        
+
         // Set default provider if available
         const defaultProvider = providersData.find(p => p.default);
         if (defaultProvider) {
@@ -33,18 +33,18 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         console.error('Error loading providers:', error);
       }
     };
-    
+
     loadProviders();
   }, []);
 
   useEffect(() => {
     const loadModels = async () => {
       if (!selectedProvider) return;
-      
+
       try {
         const modelsData = await getModels(selectedProvider);
         setModels(modelsData);
-        
+
         // Set default model if available
         const defaultModel = modelsData.find(m => m.default);
         if (defaultModel) {
@@ -56,7 +56,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         console.error('Error loading models:', error);
       }
     };
-    
+
     loadModels();
   }, [selectedProvider]);
 
@@ -69,19 +69,40 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         console.error('Error loading personas:', error);
       }
     };
-    
+
     loadPersonas();
   }, []);
 
   // Update custom prompt when persona changes
   useEffect(() => {
     if (selectedPersona === 'custom') return;
-    
+
     const persona = personas.find(p => p.id === selectedPersona);
     if (persona) {
       setCustomPrompt(persona.prompt);
     }
   }, [selectedPersona, personas]);
+
+  // Filter models based on selected mode and provider
+  const filteredModels = useMemo(() => {
+    if (!models.length) return [];
+
+    return models.filter(model => {
+      // Only show models that belong to the selected provider
+      if (model.provider !== selectedProvider) return false;
+
+      // For image mode, only show models with vision capability
+      if (mode === 'image' && !model.capabilities.includes('vision')) return false;
+
+      // For RAG mode, only show models with chat capability
+      if (mode === 'rag' && !model.capabilities.includes('chat')) return false;
+
+      // For audio mode, only show models with audio capability
+      if (mode === 'audio' && !model.capabilities.includes('audio')) return false;
+
+      return true;
+    });
+  }, [models, selectedProvider, mode]);
 
   // Handle provider change
   const handleProviderChange = (providerId: string) => {
@@ -92,20 +113,47 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   // Handle mode change
   const handleModeChange = (newMode: string) => {
     setMode(newMode);
+
+    // Reset selected model if it doesn't support the new mode
+    const currentModel = models.find(m => m.id === selectedModel);
+    if (currentModel) {
+      const supportsMode =
+        (newMode === 'image' && currentModel.capabilities.includes('vision')) ||
+        (newMode === 'rag' && currentModel.capabilities.includes('chat')) ||
+        (newMode === 'audio' && currentModel.capabilities.includes('audio')) ||
+        (newMode === 'chat');
+
+      if (!supportsMode) {
+        // Find a suitable default model for this mode and provider
+        const suitableModel = models.find(m =>
+          m.provider === selectedProvider &&
+          ((newMode === 'image' && m.capabilities.includes('vision')) ||
+            (newMode === 'rag' && m.capabilities.includes('chat')) ||
+            (newMode === 'audio' && m.capabilities.includes('audio')) ||
+            (newMode === 'chat'))
+        );
+
+        if (suitableModel) {
+          setSelectedModel(suitableModel.id);
+        } else {
+          setSelectedModel('');
+        }
+      }
+    }
   };
 
   return (
     <div className="w-full bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-700 z-10 max-h-[80vh] overflow-y-auto">
       <div className="sticky top-0 p-4 border-b border-gray-200 dark:border-dark-700 flex justify-between items-center bg-white dark:bg-dark-800">
         <h2 className="text-lg font-semibold">Settings</h2>
-        <button 
+        <button
           onClick={onClose}
           className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-dark-700"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
-      
+
       <div className="p-4 space-y-4">
         <div>
           <label className="block text-sm font-medium mb-1">Mode</label>
@@ -120,7 +168,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <option value="audio">Audio Mode</option>
           </select>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium mb-1">Provider</label>
           <select
@@ -135,7 +183,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             ))}
           </select>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium mb-1">Model</label>
           <select
@@ -143,18 +191,23 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             onChange={(e) => setSelectedModel(e.target.value)}
             className="w-full rounded-md border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 py-2 px-3 text-sm"
           >
-            {models.length === 0 ? (
-              <option value="">Loading models...</option>
+            {filteredModels.length === 0 ? (
+              <option value="">No compatible models available</option>
             ) : (
-              models.map((model) => (
+              filteredModels.map((model) => (
                 <option key={model.id} value={model.id}>
-                  {model.name}
+                  {model.name} {model.economical ? '(Economical)' : ''}
                 </option>
               ))
             )}
           </select>
+          {filteredModels.length === 0 && models.length > 0 && (
+            <p className="text-xs text-orange-500 mt-1">
+              No models available for this provider that support {mode} mode.
+            </p>
+          )}
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium mb-1">Persona</label>
           <select
@@ -169,7 +222,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             ))}
           </select>
         </div>
-        
+
         {selectedPersona === 'custom' && (
           <div>
             <label className="block text-sm font-medium mb-1">Custom Prompt</label>
@@ -182,7 +235,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             />
           </div>
         )}
-        
+
         <div>
           <label className="block text-sm font-medium mb-1">
             Temperature: {temperature.toFixed(1)}
@@ -201,7 +254,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <span>Creative</span>
           </div>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium mb-1">
             Max Tokens: {maxTokens}
@@ -221,7 +274,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           </div>
         </div>
       </div>
-      
+
       <div className="sticky bottom-0 p-4 border-t border-gray-200 dark:border-dark-700 grid grid-cols-2 gap-3 bg-white dark:bg-dark-800">
         <button
           onClick={onClose}
@@ -238,4 +291,4 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       </div>
     </div>
   );
-} 
+}
