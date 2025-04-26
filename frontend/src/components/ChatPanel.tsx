@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { MessageSquare, Send, RefreshCw, Bot, User, PanelRight, Bookmark, MoreHorizontal, Check } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
+import ReactMarkdown from 'react-markdown';
 
 type ChatPanelProps = {
   chat: Chat;
@@ -18,6 +19,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const [showFallbackMessage, setShowFallbackMessage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -36,6 +38,13 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
     }
   }, [inputValue]);
+
+  // Auto-scroll chat history container to bottom when messages change
+  useEffect(() => {
+    if (chatHistoryRef.current) {
+      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+    }
+  }, [chat.messages]);
 
   // Check API connectivity with debounce
   useEffect(() => {
@@ -259,29 +268,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [chat, onUpdateChat]);
 
-  // Use memo for simplified empty chat UI to prevent re-renders
-  const emptyChatUI = useMemo(() => (
-    <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-      <div className="mb-6 p-5 rounded-full bg-gradient-to-br from-blue-400 via-indigo-400 to-purple-400 dark:from-blue-600 dark:via-indigo-600 dark:to-purple-600 shadow-lg animate-float">
-        <Bot className="w-12 h-12 text-white" />
-      </div>
-      <h2 className="text-3xl font-bold mb-3 text-gray-800 dark:text-gray-100 animate-fadeIn bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 inline-block text-transparent bg-clip-text">Start a conversation</h2>
-
-      {showFallbackMessage && (
-        <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-xl shadow-sm text-sm max-w-md border border-amber-200 dark:border-amber-800">
-          <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
-          <button
-            className="mt-3 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
-            onClick={() => window.location.reload()}
-          >
-            <RefreshCw className="w-3 h-3 mr-1" />
-            <span>Retry connection</span>
-          </button>
-        </div>
-      )}
-    </div>
-  ), [chat.model, showFallbackMessage]);
-
   return (
     <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
@@ -296,48 +282,33 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
-      {chat.messages.length === 0
-        ? emptyChatUI
-        : (
-          <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
-            {chat.messages.map((msg, index) => (
-              <div
-                key={msg.message_id}
-                className={`group flex space-x-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
-                style={{ animationDelay: `${index * 0.05}s` }}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold shadow-md">
-                    <Bot className="w-5 h-5" />
-                  </div>
-                )}
-                <div
-                  className={`relative max-w-2xl px-5 py-3 ${msg.role === 'user'
-                    ? 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-tr-sm'
-                    : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm'
-                    } transition-all duration-200 hover:shadow-md`}
-                >
-                  <div className="text-sm opacity-0 group-hover:opacity-100 absolute top-0 right-0 -mt-6 flex space-x-1 transition-opacity duration-200">
-                    <button className="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-                      <Bookmark className="w-4 h-4" />
-                    </button>
-                    <button className="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="prose dark:prose-invert prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: msg.content }} />
-                </div>
-                {msg.role === 'user' && (
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center text-white font-bold shadow-md">
-                    <User className="w-5 h-5" />
-                  </div>
-                )}
+      {/* Chat history markdown container fills available space */}
+      <div
+        ref={chatHistoryRef}
+        className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto"
+      >
+        {chat.messages.length === 0 ? (
+          <div className="text-gray-400 text-sm italic flex items-center justify-center h-full">No messages yet.</div>
+        ) : (
+          chat.messages.map((msg, idx) => (
+            <React.Fragment key={msg.message_id || idx}>
+              <div className="mb-2 last:mb-0">
+                <span className="font-semibold text-xs text-blue-600 dark:text-blue-400 mr-2">{msg.role === 'user' ? 'You' : 'AI'}:</span>
+                <ReactMarkdown className="inline-block align-middle prose dark:prose-invert prose-sm max-w-none">{msg.content}</ReactMarkdown>
               </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        )
-      }
+              {idx < chat.messages.length - 1 && (
+                <div className="flex items-center my-2">
+                  <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
+                  <span className="mx-3 text-xs text-gray-400 select-none">
+                    {new Date(chat.messages[idx + 1].created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </span>
+                  <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
+                </div>
+              )}
+            </React.Fragment>
+          ))
+        )}
+      </div>
 
       {errorMessage && (
         <div className="mx-4 mb-3 p-3 bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200 text-sm rounded-lg flex justify-between items-center shadow-md backdrop-blur-sm">
