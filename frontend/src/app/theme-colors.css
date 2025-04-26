@@ -1,5 +1,19 @@
 /* Theme variations for the application */
 
+/* Default root variables (will be overridden by theme classes) */
+:root {
+  --primary-50: 191 100% 97%;
+  --primary-100: 192 94% 94%;
+  --primary-200: 193 87% 87%;
+  --primary-300: 193 82% 70%;
+  --primary-400: 193 79% 60%;
+  --primary-500: 193 76% 52%;
+  --primary-600: 193 80% 45%;
+  --primary-700: 193 84% 36%;
+  --primary-800: 193 88% 29%;
+  --primary-900: 193 92% 24%;
+}
+
 /* BLUE theme (default) */
 .theme-blue {
   --primary-50: 191 100% 97%;
@@ -56,16 +70,36 @@
   --primary-900: 222 47% 11%;
 }
 
-/* Fix for theme color application - set default to blue theme */
-:root:not(.theme-blue):not(.theme-teal):not(.theme-purple):not(.theme-gray) {
-  --primary-50: 191 100% 97%;
-  --primary-100: 192 94% 94%;
-  --primary-200: 193 87% 87%;
-  --primary-300: 193 82% 70%;
-  --primary-400: 193 79% 60%;
-  --primary-500: 193 76% 52%;
-  --primary-600: 193 80% 45%;
-  --primary-700: 193 84% 36%;
-  --primary-800: 193 88% 29%;
-  --primary-900: 193 92% 24%;
-} 
+/* Generate utility classes for primary colors */
+.text-primary-50 { color: hsl(var(--primary-50)); }
+.text-primary-100 { color: hsl(var(--primary-100)); }
+.text-primary-200 { color: hsl(var(--primary-200)); }
+.text-primary-300 { color: hsl(var(--primary-300)); }
+.text-primary-400 { color: hsl(var(--primary-400)); }
+.text-primary-500 { color: hsl(var(--primary-500)); }
+.text-primary-600 { color: hsl(var(--primary-600)); }
+.text-primary-700 { color: hsl(var(--primary-700)); }
+.text-primary-800 { color: hsl(var(--primary-800)); }
+.text-primary-900 { color: hsl(var(--primary-900)); }
+
+.bg-primary-50 { background-color: hsl(var(--primary-50)); }
+.bg-primary-100 { background-color: hsl(var(--primary-100)); }
+.bg-primary-200 { background-color: hsl(var(--primary-200)); }
+.bg-primary-300 { background-color: hsl(var(--primary-300)); }
+.bg-primary-400 { background-color: hsl(var(--primary-400)); }
+.bg-primary-500 { background-color: hsl(var(--primary-500)); }
+.bg-primary-600 { background-color: hsl(var(--primary-600)); }
+.bg-primary-700 { background-color: hsl(var(--primary-700)); }
+.bg-primary-800 { background-color: hsl(var(--primary-800)); }
+.bg-primary-900 { background-color: hsl(var(--primary-900)); }
+
+.border-primary-50 { border-color: hsl(var(--primary-50)); }
+.border-primary-100 { border-color: hsl(var(--primary-100)); }
+.border-primary-200 { border-color: hsl(var(--primary-200)); }
+.border-primary-300 { border-color: hsl(var(--primary-300)); }
+.border-primary-400 { border-color: hsl(var(--primary-400)); }
+.border-primary-500 { border-color: hsl(var(--primary-500)); }
+.border-primary-600 { border-color: hsl(var(--primary-600)); }
+.border-primary-700 { border-color: hsl(var(--primary-700)); }
+.border-primary-800 { border-color: hsl(var(--primary-800)); }
+.border-primary-900 { border-color: hsl(var(--primary-900)); } 

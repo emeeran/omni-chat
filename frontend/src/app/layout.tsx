@@ -1,7 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import { ThemeProvider } from '@/components/ThemeProvider';
+import { ApplicationThemeProvider } from '@/components/ApplicationThemeProvider';
 
 // Use optimized font loading
 const inter = Inter({
@@ -27,9 +27,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="font-sans bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 min-h-screen transition-colors duration-300">
-        <ThemeProvider>
+        <ApplicationThemeProvider>
           {children}
-        </ThemeProvider>
+        </ApplicationThemeProvider>
       </body>
     </html>
   );

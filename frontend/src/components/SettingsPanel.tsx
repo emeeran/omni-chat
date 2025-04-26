@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Monitor, Moon, Sun, Palette } from 'lucide-react';
 import { Provider, Model, Persona, getProviders, getModels, getPersonas } from '@/lib/api';
-import { useTheme } from '@/hooks/useTheme';
+import { useApplicationTheme } from '@/hooks/useApplicationTheme';
 
 type SettingsPanelProps = {
   onClose: () => void;
@@ -30,7 +30,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [defaultsSaved, setDefaultsSaved] = useState<boolean>(false);
   
   // Theme context from the simplified useTheme hook
-  const { theme, setTheme, colorTheme, setColorTheme } = useTheme();
+  const { theme, setTheme, colorTheme, setColorTheme } = useApplicationTheme();
 
   // Load any saved defaults on mount
   useEffect(() => {
