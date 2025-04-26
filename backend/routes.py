@@ -266,6 +266,15 @@ def chat():
     assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
     logger.debug(f"Received assistant response: {assistant_response[:30]}...")
 
+    # Ensure markdown formatting
+    def ensure_markdown(text):
+        if text.strip().startswith('```') or text.strip().startswith('#') or text.strip().startswith('>'):
+            return text
+        return f"```
+{text.strip()}
+```"
+    assistant_response_markdown = ensure_markdown(assistant_response)
+
     # Add the assistant response to the chat
     chat.add_message("assistant", assistant_response)
 
@@ -284,6 +293,7 @@ def chat():
         "chat_id": chat.chat_id,
         "title": chat.title,
         "assistant_response": assistant_response,
+        "assistant_response_markdown": assistant_response_markdown,
         "full_response": response
     })
 
@@ -565,6 +575,9 @@ def rag_chat():
     assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
     logger.debug(f"Received RAG assistant response: {assistant_response[:30]}...")
 
+    # Ensure markdown formatting
+    assistant_response_markdown = ensure_markdown(assistant_response)
+
     # Add the assistant response to the chat
     chat.add_message("assistant", assistant_response)
 
@@ -596,6 +609,7 @@ def rag_chat():
         "chat_id": chat.chat_id,
         "title": chat.title,
         "assistant_response": assistant_response,
+        "assistant_response_markdown": assistant_response_markdown,
         "context_used": bool(context),
         "documents_used": len(search_results),
         "source_documents": source_documents[:5],  # Return top 5 for UI

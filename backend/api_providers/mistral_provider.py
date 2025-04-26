@@ -111,21 +111,11 @@ class MistralProvider(BaseProvider):
             # Call Mistral API
             response = self.client.chat(**params)
 
-            # Format the response to match the expected format
-            return {
-                "id": response.id,
+            # Use the standardized format_response method
+            return self.format_response(response, {
                 "created": int(response.created_at),
-                "model": response.model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": response.choices[0].message.role,
-                            "content": response.choices[0].message.content
-                        }
-                    }
-                ]
-            }
+                "model": response.model
+            })
 
         except Exception as e:
             logger.error(f"Error in Mistral chat completion: {e}")

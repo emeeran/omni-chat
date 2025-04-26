@@ -144,6 +144,70 @@ class BaseProvider(ABC):
         """
         pass
 
+    def format_response(self, response: Any, provider_specific_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Format provider-specific response into a standardized format
+
+        Args:
+            response: The original response from the provider
+            provider_specific_data: Any additional provider-specific data to include
+
+        Returns:
+            Standardized response dictionary
+        """
+        # Handle error responses
+        if isinstance(response, dict) and "error" in response:
+            return response
+
+        # Create a standardized response structure
+        standardized_response = {
+            "id": getattr(response, "id", None) or str(time.time()),
+            "created": getattr(response, "created", None) or int(time.time()),
+            "model": getattr(response, "model", None) or "unknown",
+            "choices": [],
+            "provider": self.__class__.__name__.replace("Provider", "").lower()
+        }
+
+        # Include any provider-specific data
+        if provider_specific_data:
+            standardized_response.update(provider_specific_data)
+
+        # Add standardized choices
+        if hasattr(response, "choices") and response.choices:
+            for i, choice in enumerate(response.choices):
+                std_choice = {"index": i}
+
+                # Handle different message formats
+                if hasattr(choice, "message"):
+                    message = choice.message
+                    std_choice["message"] = {
+                        "role": getattr(message, "role", "assistant"),
+                        "content": getattr(message, "content", "")
+                    }
+                elif isinstance(choice, dict) and "message" in choice:
+                    std_choice["message"] = choice["message"]
+                else:
+                    # Fallback for text-only responses
+                    std_choice["message"] = {
+                        "role": "assistant",
+                        "content": str(choice)
+                    }
+
+                standardized_response["choices"].append(std_choice)
+
+        # Handle dictionary response format (already converted)
+        if isinstance(response, dict):
+            if "choices" in response:
+                standardized_response["choices"] = response["choices"]
+            if "id" in response:
+                standardized_response["id"] = response["id"]
+            if "created" in response:
+                standardized_response["created"] = response["created"]
+            if "model" in response:
+                standardized_response["model"] = response["model"]
+
+        return standardized_response
+
     def process_system_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
         Process system prompt with context variables if needed
