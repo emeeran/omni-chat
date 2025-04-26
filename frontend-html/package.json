@@ -1,0 +1,13 @@
+{
+  "name": "omni-chat-html",
+  "version": "1.0.0",
+  "description": "A simplified HTML/CSS/JSX version of OmniChat",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "author": "",
+  "license": "MIT"
+} 

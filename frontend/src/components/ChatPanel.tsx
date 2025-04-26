@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { MessageSquare, Send, RefreshCw, Bot, Sparkles, User, PanelRight, Bookmark, MoreHorizontal, Check } from 'lucide-react';
+import { MessageSquare, Send, RefreshCw, Bot, User, PanelRight, Bookmark, MoreHorizontal, Check } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
 
@@ -16,17 +16,8 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showFallbackMessage, setShowFallbackMessage] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Example message suggestions
-  const suggestions = [
-    "Explain how large language models work",
-    "Write a Python script to analyze sentiment in tweets",
-    "Summarize the key features of React 18",
-    "What are the best practices for API security?"
-  ];
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -99,7 +90,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     try {
       setIsLoading(true);
       setErrorMessage(null);
-      setShowSuggestions(false);
 
       const userMessage: Message = {
         message_id: `temp-${Date.now()}`,
@@ -167,11 +157,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [handleSendMessage]);
 
-  // Use suggestion as input
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    handleSendMessage(suggestion);
-  }, [handleSendMessage]);
-
   // Handle running code from code blocks
   const handleRunCode = useCallback(async (code: string, language?: string) => {
     try {
@@ -199,104 +184,39 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const assistantMessage: Message = {
         message_id: `exec-${Date.now()}`,
         role: 'assistant',
-        content: `<div class="flex items-center space-x-2">
-          <div class="animate-pulse">
-            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block"></div>
-            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block animation-delay-200"></div>
-            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block animation-delay-400"></div>
-          </div>
-          <span>Executing code...</span>
-        </div>`,
+        content: 'Executing code...',
         created_at: new Date().toISOString(),
       };
 
-      // Update UI with both messages
-      const updatedMessages = [...chat.messages, userMessage, assistantMessage];
+      // Update the chat with the messages
       onUpdateChat({
         ...chat,
-        messages: updatedMessages,
+        messages: [...chat.messages, userMessage, assistantMessage],
       });
 
-      // Run the code in a terminal via the API
-      let command = code;
-      let createFileResponse;
-
-      // Wrap the command in the appropriate interpreter if needed
-      if (language === 'python') {
-        // Create a temp Python file and run it
-        const timestamp = Date.now();
-        const filename = `temp_script_${timestamp}.py`;
-
-        // First create the file
-        createFileResponse = await fetch('/api/terminal/write-file', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filename,
-            content: code,
-          }),
-        });
-
-        if (!createFileResponse.ok) {
-          throw new Error('Failed to create temporary script file');
-        }
-
-        // Then execute it
-        command = `python ${filename}`;
-      } else if (language === 'javascript' || language === 'js') {
-        // Create a temp JS file and run it
-        const timestamp = Date.now();
-        const filename = `temp_script_${timestamp}.js`;
-
-        // First create the file
-        createFileResponse = await fetch('/api/terminal/write-file', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filename,
-            content: code,
-          }),
-        });
-
-        if (!createFileResponse.ok) {
-          throw new Error('Failed to create temporary script file');
-        }
-
-        // Then execute it
-        command = `node ${filename}`;
-      }
-
-      // Execute the command
+      // Call the API to execute the code
       const response = await fetch('/api/terminal/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          command,
+          code,
+          language,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to execute command');
-      }
-
       const result = await response.json();
 
-      // Update the assistant message with the results
+      // Create a message with the output
       const outputMessage: Message = {
         message_id: `output-${Date.now()}`,
         role: 'assistant',
         content: `<div class="flex flex-col space-y-2">
-          <div class="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
-            <Check className="w-4 h-4" />
-            <span class="font-medium">Code executed successfully</span>
+          <div class="flex items-center space-x-2 text-blue-600 dark:text-blue-400">
+            <span class="font-medium">Code execution result:</span>
           </div>
-          <div class="bg-gray-100 dark:bg-gray-800 rounded-md p-3 overflow-auto">
+          <div class="bg-gray-50 dark:bg-gray-900 rounded-md p-3 overflow-auto">
             <pre class="whitespace-pre-wrap">${result.output || 'Command executed with no output.'}</pre>
           </div>
         </div>`,
@@ -339,34 +259,13 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [chat, onUpdateChat]);
 
-  // Use memo for empty chat UI to prevent re-renders
+  // Use memo for simplified empty chat UI to prevent re-renders
   const emptyChatUI = useMemo(() => (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
       <div className="mb-6 p-5 rounded-full bg-gradient-to-br from-blue-400 via-indigo-400 to-purple-400 dark:from-blue-600 dark:via-indigo-600 dark:to-purple-600 shadow-lg animate-float">
-        <Sparkles className="w-12 h-12 text-white" />
+        <Bot className="w-12 h-12 text-white" />
       </div>
       <h2 className="text-3xl font-bold mb-3 text-gray-800 dark:text-gray-100 animate-fadeIn bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 inline-block text-transparent bg-clip-text">Start a conversation</h2>
-      <p className="text-base text-gray-600 dark:text-gray-300 max-w-md text-center animate-fadeIn mb-8">
-        Send a message to start chatting with the AI assistant using {chat.model}.
-      </p>
-
-      <div className="w-full max-w-lg mt-4 space-y-3 animate-fadeIn">
-        <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-2">Try one of these examples:</p>
-        {suggestions.map((suggestion, index) => (
-          <button
-            key={index}
-            onClick={() => handleSuggestionClick(suggestion)}
-            className="w-full p-3 text-left rounded-xl border border-blue-100 dark:border-blue-900 bg-white/80 dark:bg-gray-800/80 hover:bg-blue-50 dark:hover:bg-blue-900/30 backdrop-blur-sm shadow-sm hover:shadow-md transition-all duration-200 text-gray-800 dark:text-gray-200"
-          >
-            <div className="flex items-center">
-              <span className="p-1.5 rounded-md bg-blue-100 dark:bg-blue-800 mr-3">
-                <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-300" />
-              </span>
-              {suggestion}
-            </div>
-          </button>
-        ))}
-      </div>
 
       {showFallbackMessage && (
         <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-xl shadow-sm text-sm max-w-md border border-amber-200 dark:border-amber-800">
@@ -381,7 +280,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
     </div>
-  ), [chat.model, showFallbackMessage, suggestions, handleSuggestionClick]);
+  ), [chat.model, showFallbackMessage]);
 
   return (
     <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
@@ -455,26 +354,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       <div className="px-4 pb-4 pt-2 bg-gradient-to-t from-white/80 via-white/60 to-transparent dark:from-gray-900/80 dark:via-gray-900/60 dark:to-transparent backdrop-blur-sm">
         <div className="relative mx-auto max-w-3xl">
           <div className="relative rounded-2xl shadow-xl bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl p-2 animate-fadeIn border border-gray-100 dark:border-gray-700">
-            {showSuggestions && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 p-2 z-10 transition-all duration-200 animate-slideDown">
-                <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-500 dark:text-gray-400 font-medium border-b border-gray-100 dark:border-gray-700 mb-2">
-                  <span>Suggestions</span>
-                  <button onClick={() => setShowSuggestions(false)} className="hover:text-gray-700 dark:hover:text-gray-200">✕</button>
-                </div>
-                <div className="space-y-1.5">
-                  {suggestions.map((suggestion, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg text-sm text-gray-700 dark:text-gray-200 transition-colors"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <div className="flex items-end space-x-2">
               <div className="relative flex-1">
                 <textarea
@@ -487,12 +366,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
                   rows={1}
                   disabled={isLoading}
                 />
-                <button
-                  onClick={() => setShowSuggestions(!showSuggestions)}
-                  className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <Sparkles className="w-4 h-4" />
-                </button>
               </div>
               <button
                 onClick={() => handleSendMessage()}
@@ -508,18 +381,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
                   <Send className="w-5 h-5" />
                 )}
               </button>
-            </div>
-
-            <div className="flex justify-between items-center px-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
-              <div className="flex items-center">
-                <div className="w-2 h-2 rounded-full bg-green-500 mr-1.5"></div>
-                <span>Using {chat.provider} / {chat.model}</span>
-              </div>
-              <div className="flex space-x-2">
-                <button className="hover:text-gray-700 dark:hover:text-gray-200">
-                  <PanelRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
             </div>
           </div>
         </div>

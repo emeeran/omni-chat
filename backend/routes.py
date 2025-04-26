@@ -383,7 +383,6 @@ def rag_chat():
         top_k=top_k,
         doc_ids=document_ids,
         min_score=relevance_threshold,
-        batch_size=batch_size,
         use_semantic_filtering=True  # Enable semantic pre-filtering
     )
     retrieval_time = time.time() - start_time
@@ -600,8 +599,7 @@ def rag_chat():
             "doc_id": doc_id,
             "filename": metadata.get('filename', ''),
             "title": metadata.get('title', metadata.get('filename', '')),
-            "chunks_used": len(group['chunks']),
-            "snippet": group['chunks'][0].get("content", "")[:100] + "..." if group['chunks'] else ""
+            "chunks_used": len(group['chunks'])
         })
 
     # Return the response with enhanced metadata
