@@ -296,6 +296,17 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
+      {/* Add provider and model info header */}
+      <div className="px-4 py-2 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+            <span className="font-medium">{chat.provider}</span>
+            <span>•</span>
+            <span>{chat.model}</span>
+          </div>
+        </div>
+      </div>
+
       {chat.messages.length === 0
         ? emptyChatUI
         : (

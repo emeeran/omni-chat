@@ -768,7 +768,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
                 <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
             </div>
-
             <div className="space-y-4">
               {loading ? (
                 <div className="flex justify-center py-8">
@@ -785,7 +784,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
                       rows={4}
                     ></textarea>
                   </div>
-
                   {/* Context Window */}
                   <div className="mb-4">
                     <div className="flex justify-between items-center mb-1.5">
@@ -806,7 +804,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
                       <span className="text-xs text-gray-500 dark:text-gray-400">Long Memory</span>
                     </div>
                   </div>
-
                   {/* Plugin Support */}
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-1.5">
@@ -848,7 +845,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
                       </div>
                     </div>
                   </div>
-
                   {/* API Keys Management */}
                   <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
@@ -878,7 +874,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
           </div>
         </div>
       )}
-
       <div className={`h-screen flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/80 backdrop-blur-lg shadow-xl overflow-hidden transition-all duration-300 ${collapsed ? 'w-16' : 'w-80'}`}>
         {/* Toggle button */}
         <button
@@ -888,7 +883,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
         >
           <ChevronLeft className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
         </button>
-
         {/* Header */}
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-4 border-b border-gray-200 dark:border-gray-700`}>
           {collapsed ? (
@@ -912,7 +906,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
             </>
           )}
         </div>
-
         {/* Bottom tabs navigation */}
         <div className="mt-auto border-t border-gray-200 dark:border-gray-700 p-2 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm">
           <div className={`flex ${collapsed ? 'flex-col space-y-4' : 'justify-around'} items-center`}>
@@ -927,7 +920,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
               <MessageSquare className="w-5 h-5" />
               {!collapsed && <span className="text-xs mt-1">Chats</span>}
             </button>
-
             <button
               onClick={() => setActiveTab('docs')}
               className={`p-2 rounded-lg flex flex-col items-center ${activeTab === 'docs'
@@ -939,7 +931,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
               <FileText className="w-5 h-5" />
               {!collapsed && <span className="text-xs mt-1">Docs</span>}
             </button>
-
             <button
               onClick={() => setActiveTab('settings')}
               className={`p-2 rounded-lg flex flex-col items-center ${activeTab === 'settings'
@@ -953,7 +944,12 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
             </button>
           </div>
         </div>
-
+        {/* Provider | Model display at the very bottom */}
+        <div className="mb-3 mt-2 px-4 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center">
+          <span className="truncate max-w-[90px]" title={selectedProviderName}>{selectedProviderName}</span>
+          <span className="mx-1">|</span>
+          <span className="truncate max-w-[90px]" title={selectedModelName}>{selectedModelName}</span>
+        </div>
         {/* Main content area */}
         {!collapsed && (
           <div className="flex-1 overflow-hidden">
