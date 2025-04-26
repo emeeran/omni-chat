@@ -37,6 +37,8 @@ const CodeBlock = memo(function CodeBlock({ node, inline, className, children, .
   const isExecutable = ['bash', 'sh', 'shell', 'python', 'js', 'javascript', 'typescript', 'ts'].includes(language);
   const code = String(children).replace(/\n$/, '');
 
+  const languageLabel = language ? language : 'text';
+
   // Reset copied state after 2 seconds
   useEffect(() => {
     if (copied) {
@@ -69,7 +71,11 @@ const CodeBlock = memo(function CodeBlock({ node, inline, className, children, .
 
   return (
     <div className="relative group">
-      <pre className={className} {...props}>
+      <pre
+        className={className}
+        {...props}
+        data-language={languageLabel}
+      >
         <code className={className} {...props}>
           {children}
         </code>
@@ -114,23 +120,32 @@ const ChatMessage = memo(function ChatMessage({
   const isLongMessage = message.content.length > 1000;
 
   return (
-    <div ref={ref} className="flex items-start">
+    <div ref={ref} className="flex items-start group animate-fadeIn">
       {message.role === 'user' ? (
         <div className="flex-shrink-0 mr-3">
-          <UserCircle className="w-8 h-8 text-primary-600 dark:text-primary-400" />
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-sm">
+            <UserCircle className="w-5 h-5" />
+          </div>
         </div>
       ) : (
         <div className="flex-shrink-0 mr-3">
-          <Bot className="w-8 h-8 text-secondary-600 dark:text-secondary-400" />
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center text-white shadow-sm">
+            <Bot className="w-5 h-5" />
+          </div>
         </div>
       )}
       <div className="flex-1 overflow-hidden">
-        <div className="text-sm font-medium mb-1">
-          {message.role === 'user' ? 'You' : 'AI Assistant'}
+        <div className="flex items-center mb-1">
+          <div className="text-sm font-medium">
+            {message.role === 'user' ? 'You' : 'AI Assistant'}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            {message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+          </div>
         </div>
-        <div className={`message-content prose dark:prose-invert max-w-none py-2 px-3 rounded-lg ${message.role === 'user'
-            ? 'bg-primary-50 dark:bg-primary-900/30 text-gray-800 dark:text-gray-200'
-            : 'bg-white dark:bg-dark-800 border border-gray-200 dark:border-dark-700 text-gray-800 dark:text-gray-200'
+        <div className={`message-content prose dark:prose-invert max-w-none py-3 px-4 rounded-lg shadow-sm ${message.role === 'user'
+            ? 'bg-gradient-to-br from-indigo-500/10 to-blue-500/10 border border-indigo-200 dark:border-indigo-900 dark:from-indigo-900/20 dark:to-blue-900/20'
+            : 'bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700'
           }`}>
           {(!isLongMessage || inView) ? (
             <MessageContent content={message.content} />
@@ -138,7 +153,7 @@ const ChatMessage = memo(function ChatMessage({
             // Simple preview for long messages that are not in view
             <div className="opacity-70">
               {message.content.slice(0, 100)}...
-              <span className="text-blue-500 italic">(scrolling to view)</span>
+              <span className="text-blue-500 italic ml-2">(scrolling to view)</span>
             </div>
           )}
         </div>

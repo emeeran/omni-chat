@@ -228,10 +228,12 @@
 
   .message-content h1 {
     @apply text-2xl font-bold mt-6 mb-4;
+    @apply border-b border-gray-200 dark:border-gray-700 pb-2;
   }
 
   .message-content h2 {
     @apply text-xl font-bold mt-5 mb-3;
+    @apply border-b border-gray-200 dark:border-gray-700 pb-1;
   }
 
   .message-content h3 {
@@ -239,26 +241,27 @@
   }
 
   .message-content p {
-    @apply my-2;
+    @apply my-2 leading-relaxed text-gray-700 dark:text-gray-300;
   }
 
   .message-content pre {
     @apply p-3 my-4 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto;
+    @apply border border-gray-200 dark:border-gray-700 shadow-sm;
     position: relative;
   }
 
   .message-content code {
-    @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-md text-sm;
+    @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-md text-sm text-indigo-600 dark:text-indigo-400;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 
   .message-content pre code {
-    @apply bg-transparent p-0 text-sm;
+    @apply bg-transparent p-0 text-sm text-gray-800 dark:text-gray-200;
   }
 
   .message-content ul,
   .message-content ol {
-    @apply my-2 pl-6;
+    @apply my-3 pl-6 space-y-2;
   }
 
   .message-content ul {
@@ -271,14 +274,21 @@
 
   .message-content li {
     @apply mb-1;
+    @apply text-gray-700 dark:text-gray-300;
+  }
+
+  .message-content li>p {
+    @apply my-0.5;
   }
 
   .message-content blockquote {
     @apply border-l-4 border-blue-200 dark:border-blue-800 pl-4 my-3 italic bg-blue-50/50 dark:bg-blue-900/20 py-2 rounded-r-md;
+    @apply text-gray-600 dark:text-gray-400;
   }
 
   .message-content table {
     @apply w-full text-left border-collapse my-4 rounded-lg overflow-hidden;
+    @apply shadow-sm;
   }
 
   .message-content th,
@@ -292,6 +302,30 @@
 
   .message-content a {
     @apply text-blue-600 dark:text-blue-400 hover:underline;
+    @apply font-medium;
+  }
+
+  /* Improved code block styling */
+  .message-content pre {
+    @apply relative;
+  }
+
+  .message-content pre::before {
+    @apply absolute top-0 left-0 px-3 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 rounded-br;
+    content: attr(data-language);
+  }
+
+  /* Callout boxes for important information */
+  .message-content .info-box {
+    @apply bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-3 rounded-r my-4;
+  }
+
+  .message-content .warning-box {
+    @apply bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 p-3 rounded-r my-4;
+  }
+
+  .message-content .success-box {
+    @apply bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 p-3 rounded-r my-4;
   }
 
   /* Custom message styling */
@@ -306,6 +340,7 @@
   /* Copy button for code blocks */
   .copy-button {
     @apply absolute top-2 right-2 p-1 rounded-md bg-gray-200 dark:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity text-gray-700 dark:text-gray-300;
+    @apply hover:bg-gray-300 dark:hover:bg-gray-600 z-10;
   }
 }
 
