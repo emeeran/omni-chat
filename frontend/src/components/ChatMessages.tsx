@@ -19,7 +19,41 @@ const MessageContent = memo(({ content }: { content: string }) => {
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
-        code: CodeBlock
+        code: CodeBlock,
+        p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc pl-4 mb-4 last:mb-0">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal pl-4 mb-4 last:mb-0">{children}</ol>,
+        li: ({ children }) => <li className="mb-1">{children}</li>,
+        h1: ({ children }) => <h1 className="text-2xl font-bold mb-4">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-xl font-bold mb-3">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-lg font-bold mb-2">{children}</h3>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-4">
+            {children}
+          </blockquote>
+        ),
+        pre: ({ children }) => (
+          <pre className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto my-4">
+            {children}
+          </pre>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-4">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+            {children}
+          </td>
+        ),
       }}
     >
       {content}
@@ -63,7 +97,7 @@ const CodeBlock = memo(function CodeBlock({ node, inline, className, children, .
 
   if (inline) {
     return (
-      <code className={className} {...props}>
+      <code className={`${className} bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 text-sm`} {...props}>
         {children}
       </code>
     );
@@ -71,33 +105,32 @@ const CodeBlock = memo(function CodeBlock({ node, inline, className, children, .
 
   return (
     <div className="relative group">
-      <pre
-        className={className}
-        {...props}
-        data-language={languageLabel}
-      >
-        <code className={className} {...props}>
+      <div className="absolute right-4 top-2 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {isExecutable && (
+          <button
+            onClick={handleRunCode}
+            className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+            title="Run code"
+          >
+            <Terminal className="w-4 h-4" />
+          </button>
+        )}
+        <button
+          onClick={handleCopyCode}
+          className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+          title="Copy code"
+        >
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+        </button>
+      </div>
+      <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-t-lg px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+        <span className="font-mono">{languageLabel}</span>
+      </div>
+      <pre className={`${className} m-0 rounded-t-none`} {...props}>
+        <code className={`${className} block p-4 overflow-x-auto`}>
           {children}
         </code>
       </pre>
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
-        <button
-          onClick={handleCopyCode}
-          className="p-1.5 rounded bg-gray-700 text-gray-100 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
-          title="Copy code"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-        {isExecutable && props.onRunCode && (
-          <button
-            onClick={handleRunCode}
-            className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-            title="Run code"
-          >
-            <Terminal size={14} />
-          </button>
-        )}
-      </div>
     </div>
   );
 });

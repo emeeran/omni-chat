@@ -52,25 +52,48 @@ class ChatStore:
             self.metadata_cache = {}
 
             for filename in os.listdir(self.data_dir):
-                if filename.endswith('.json'):
-                    chat_id = filename[:-5]  # Remove .json extension
-                    file_path = os.path.join(self.data_dir, filename)
+                if not filename.endswith('.json'):
+                    continue
+                    
+                chat_id = filename[:-5]  # Remove .json extension
+                file_path = os.path.join(self.data_dir, filename)
 
-                    try:
-                        with open(file_path, 'r') as f:
-                            data = json.load(f)
+                # Skip empty files
+                if os.path.getsize(file_path) == 0:
+                    logger.warning(f"Skipping empty chat file: {filename}")
+                    continue
 
+                try:
+                    with open(file_path, 'r') as f:
+                        content = f.read().strip()
+                        if not content:  # Skip if file is empty after stripping whitespace
+                            logger.warning(f"Skipping empty chat file after stripping: {filename}")
+                            continue
+                            
+                        try:
+                            data = json.loads(content)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Invalid JSON in chat file {filename}: {e}")
+                            continue
+
+                        # Validate required fields
+                        if not isinstance(data, dict):
+                            logger.error(f"Chat file {filename} does not contain a JSON object")
+                            continue
+
+                        # Extract metadata with safe defaults
                         self.metadata_cache[chat_id] = {
-                            "chat_id": data.get("chat_id"),
-                            "title": data.get("title"),
-                            "updated_at": data.get("updated_at"),
-                            "provider": data.get("provider"),
-                            "model": data.get("model"),
+                            "chat_id": data.get("chat_id", chat_id),
+                            "title": data.get("title", "Untitled Chat"),
+                            "updated_at": data.get("updated_at", datetime.now().isoformat()),
+                            "provider": data.get("provider", "unknown"),
+                            "model": data.get("model", "unknown"),
                             "message_count": len(data.get("messages", [])),
                             "last_message": self._get_last_message_preview(data.get("messages", []))
                         }
-                    except Exception as e:
-                        logger.error(f"Error reading chat file metadata {filename}: {e}")
+                except Exception as e:
+                    logger.error(f"Error reading chat file {filename}: {e}")
+                    continue
 
             self.metadata_last_refresh = now
             logger.debug(f"Refreshed metadata cache with {len(self.metadata_cache)} chats")
@@ -185,16 +208,37 @@ class ChatStore:
             if not os.path.exists(file_path):
                 return None
 
+            # Skip empty files
+            if os.path.getsize(file_path) == 0:
+                logger.warning(f"Chat file {chat_id}.json is empty")
+                return None
+
             # Load chat from disk
-            with open(file_path, 'r') as f:
-                chat_json = f.read()
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read().strip()
+                    if not content:
+                        logger.warning(f"Chat file {chat_id}.json is empty after stripping")
+                        return None
 
-            chat = Chat.from_json(chat_json)
+                    try:
+                        chat_json = content
+                        chat = Chat.from_json(chat_json)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON in chat file {chat_id}.json: {e}")
+                        return None
+                    except Exception as e:
+                        logger.error(f"Error parsing chat {chat_id}: {e}")
+                        return None
 
-            # Add to cache with current timestamp
-            self.cache[chat_id] = (chat, time.time())
+                # Add to cache with current timestamp
+                self.cache[chat_id] = (chat, time.time())
 
-            return chat
+                return chat
+
+            except Exception as e:
+                logger.error(f"Error reading chat file {chat_id}.json: {e}")
+                return None
 
         except Exception as e:
             logger.error(f"Error retrieving chat {chat_id}: {e}")
