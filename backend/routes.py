@@ -270,9 +270,9 @@ def chat():
     def ensure_markdown(text):
         if text.strip().startswith('```') or text.strip().startswith('#') or text.strip().startswith('>'):
             return text
-        return f"```
+        return f"""```
 {text.strip()}
-```"
+```"""
     assistant_response_markdown = ensure_markdown(assistant_response)
 
     # Add the assistant response to the chat

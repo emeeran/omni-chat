@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  Settings, MessageSquare, Plus, ChevronDown,
+  Settings, MessageSquare, Plus, ChevronDown, ChevronLeft,
   Search, Bot, Sliders, Mic, Loader2,
-  Redo, Save, Upload, Trash2, Download, X
+  Redo, Save, Upload, Trash2, Download, X,
+  Sun, Moon, FileText, Sparkles, Menu, Users, Bookmark,
 } from 'lucide-react';
 import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model } from '@/lib/api';
 import { SidebarHeader } from './SidebarHeader';
@@ -40,38 +41,57 @@ const ChatList = memo(({
 }) => {
   if (chats.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-        <p>No chats yet</p>
+      <div className="text-center py-8 text-gray-500 dark:text-gray-400 flex flex-col items-center space-y-4">
+        <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600" />
+        <p>No conversations yet</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1 py-2">
+    <div className="space-y-2 py-2">
       {chats.map((chat) => (
         <div
           key={chat.chat_id}
-          className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ${currentChatId === chat.chat_id
-            ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200'
-            : 'hover:bg-gray-100 dark:hover:bg-dark-800 text-gray-700 dark:text-gray-300'
+          className={`group flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md ${currentChatId === chat.chat_id
+            ? 'bg-gradient-to-r from-blue-500/10 to-indigo-500/10 shadow-sm text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+            : 'hover:bg-white/80 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-300'
             }`}
           onClick={() => onChatSelect(chat.chat_id)}
         >
           <div className="flex items-center space-x-3 overflow-hidden">
-            <MessageSquare className="flex-shrink-0 w-5 h-5" />
-            <span className="truncate text-sm font-medium">{chat.title || 'New Chat'}</span>
+            {currentChatId === chat.chat_id ?
+              <Sparkles className="flex-shrink-0 w-5 h-5 text-blue-500" /> :
+              <MessageSquare className="flex-shrink-0 w-5 h-5 text-gray-400 dark:text-gray-500" />
+            }
+            <div className="flex flex-col">
+              <span className="truncate text-sm font-medium">{chat.title || 'New Chat'}</span>
+              {chat.last_message && (
+                <span className="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {chat.last_message}
+                </span>
+              )}
+            </div>
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm('Are you sure you want to delete this chat?')) {
-                onDeleteChat(chat.chat_id);
-              }
-            }}
-            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-dark-700 rounded-full"
-          >
-            <Trash2 className="w-4 h-4 text-gray-500" />
-          </button>
+          <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Are you sure you want to delete this chat?')) {
+                  onDeleteChat(chat.chat_id);
+                }
+              }}
+              className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 hover:text-red-600 dark:hover:text-red-400 rounded-full transition-colors duration-200"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 rounded-full transition-colors duration-200"
+            >
+              <Bookmark className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       ))}
     </div>
@@ -96,18 +116,18 @@ const SettingsControl = memo(({
   onChange: (value: string) => void;
   isLoading?: boolean;
 }) => (
-  <div className="mb-3">
-    <div className="flex justify-between items-center mb-1">
-      <label className="block text-sm font-medium text-gray-600 dark:text-gray-400">{label}</label>
+  <div className="mb-4">
+    <div className="flex justify-between items-center mb-1.5">
+      <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">{label}</label>
       {isLoading && (
-        <Loader2 className="animate-spin h-4 w-4 text-primary-500" />
+        <Loader2 className="animate-spin h-4 w-4 text-blue-500" />
       )}
     </div>
     <div className="relative">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full pl-3 pr-8 py-2 border border-gray-400 dark:border-gray-600 bg-white/90 dark:bg-dark-700/90 rounded-md text-base font-semibold text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 appearance-none shadow ${isLoading ? 'opacity-70' : ''}`}
+        className={`w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm ${isLoading ? 'opacity-70' : ''}`}
         disabled={loading || isLoading}
       >
         {options.length > 0 ? (
@@ -133,6 +153,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chats' | 'settings' | 'docs'>('chats');
   const [mode, setMode] = useState('Chat');
   const [provider, setProvider] = useState('openai');
   const [model, setModel] = useState('gpt-4o');
@@ -141,6 +162,30 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   const [temperature, setTemperature] = useState(50);
   const [audioResponse, setAudioResponse] = useState(false);
   const router = useRouter();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Theme toggle state
+  const [theme, setTheme] = useState('light');
+
+  // Sync theme with localStorage and document class
+  useEffect(() => {
+    // On mount, set theme from localStorage or system preference
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('theme') : null;
+    let initialTheme = stored || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    setTheme(initialTheme);
+    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      localStorage.setItem('theme', theme);
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   // Ensure chats is always an array
   const chatsArray = Array.isArray(chats) ? chats : [];
@@ -165,6 +210,21 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
       setDrawerOpen(false);
     }
   }, [collapsed]);
+
+  // Focus search input when pressing Ctrl+K/Cmd+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Load saved defaults - memoize with useCallback
   const loadSavedDefaults = useCallback(() => {
@@ -338,8 +398,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   const selectedModelName = models.find(m => m.id === model)?.name || '';
 
   // Handle provider change
-  const handleProviderChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newProviderId = e.target.value;
+  const handleProviderChange = useCallback((newProviderId: string) => {
     setProvider(newProviderId);
     // The model will be updated automatically by the useEffect
   }, []);
@@ -383,9 +442,9 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
     // Toggle settings drawer when in collapsed mode
     if (collapsed) {
       setCollapsed(false);
-      setTimeout(() => setDrawerOpen(true), 300);
+      setTimeout(() => setActiveTab('settings'), 300);
     } else {
-      setDrawerOpen(true);
+      setActiveTab('settings');
     }
   }, [collapsed]);
 
@@ -419,195 +478,406 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
     alert('Settings saved as defaults for new chats');
   }, [provider, model, persona, maxTokens]);
 
+  const renderTab = useCallback(() => {
+    if (activeTab === 'settings') {
+      return (
+        <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors duration-300"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Moon className="w-5 h-5 text-yellow-500" /> : <Sun className="w-5 h-5 text-yellow-500" />}
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-t-blue-500 border-r-transparent border-b-blue-300 border-l-transparent"></div>
+            </div>
+          ) : (
+            <>
+              {/* Mode */}
+              <SettingsControl
+                loading={loading}
+                label="Chat Mode"
+                value={mode}
+                options={['Chat', 'RAG', 'Image']}
+                onChange={setMode}
+              />
+
+              {/* Provider */}
+              <SettingsControl
+                loading={loading}
+                label="AI Provider"
+                value={provider}
+                options={providers}
+                onChange={handleProviderChange}
+              />
+
+              {/* Model */}
+              <SettingsControl
+                loading={loading}
+                label="Model"
+                value={model}
+                options={models}
+                onChange={setModel}
+                isLoading={loadingModels}
+              />
+
+              {/* Persona */}
+              <SettingsControl
+                loading={loading}
+                label="Persona"
+                value={persona}
+                options={personas}
+                onChange={setPersona}
+              />
+
+              {/* Max Tokens */}
+              <div className="mb-5">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {Math.floor((maxTokens / 100) * 8000)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={maxTokens}
+                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                  className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
+                </div>
+              </div>
+
+              {/* Quick Token Presets */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => setMaxTokens(Math.floor((2000 / 8000) * 100))}
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
+                >
+                  2000
+                </button>
+                <button
+                  onClick={() => setMaxTokens(Math.floor((4000 / 8000) * 100))}
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
+                >
+                  4000
+                </button>
+                <button
+                  onClick={() => setMaxTokens(Math.floor((8000 / 8000) * 100))}
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
+                >
+                  8000
+                </button>
+              </div>
+
+              {/* Temperature */}
+              <div className="mb-5">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {temperature / 100}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseInt(e.target.value))}
+                  className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
+                </div>
+              </div>
+
+              {/* Audio Response */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
+                  <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+                    <button
+                      onClick={() => setAudioResponse(false)}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
+                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                        : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                    >
+                      Off
+                    </button>
+                    <button
+                      onClick={() => setAudioResponse(true)}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
+                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                        : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model Capabilities */}
+              {(() => {
+                const selectedModel = models.find(m => m.id === model);
+                return selectedModel && Array.isArray(selectedModel.capabilities) && selectedModel.capabilities.length > 0;
+              })() && (
+                  <div className="mb-6">
+                    <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Model Capabilities</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {models.find(m => m.id === model)?.capabilities.map(capability => (
+                        <span key={capability} className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs rounded-lg shadow-sm">
+                          {capability}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Save as Defaults Button */}
+              <div className="mb-4 pt-2">
+                <button
+                  onClick={handleSaveDefaults}
+                  className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save as Default Settings
+                </button>
+              </div>
+
+              {/* Provider Link */}
+              {providers.find(p => p.id === provider)?.website && (
+                <div className="mt-5 mb-3 text-center">
+                  <a
+                    href={providers.find(p => p.id === provider)?.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
+                  >
+                    View {selectedProviderName} provider details
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    } else if (activeTab === 'docs') {
+      return (
+        <div className="p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
+          </div>
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
+            <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+            <p>No documents uploaded yet</p>
+            <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Document
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      // Chats tab
+      return (
+        <div className="p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Conversations</h2>
+            <button
+              onClick={handleNewChatWithDefaults}
+              className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
+              aria-label="New Chat"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-4">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-gray-400" />
+            </div>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search chats... (Ctrl+K)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white/70 dark:bg-gray-800/70 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 backdrop-blur-sm"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center"
+              >
+                <X className="h-4 w-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-y-auto max-h-[calc(100vh-200px)] scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent pr-1">
+            <ChatList
+              chats={filteredChats}
+              currentChatId={currentChatId}
+              onChatSelect={onChatSelect}
+              onDeleteChat={onDeleteChat}
+            />
+
+            {filteredChats.length === 0 && searchQuery && (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <p>No chats matching "{searchQuery}"</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+  }, [
+    activeTab, loading, mode, provider, providers, model, models, persona,
+    personas, maxTokens, temperature, audioResponse, searchQuery, filteredChats,
+    currentChatId, theme, toggleTheme, handleProviderChange, handleNewChatWithDefaults,
+    handleSaveDefaults, loadingModels, onChatSelect, onDeleteChat, selectedProviderName
+  ]);
+
   return (
-    <div className="relative">
-      {/* Settings drawer */}
+    <>
+      {/* Settings drawer for larger screens */}
       {drawerOpen && !collapsed && (
-        <div className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-all duration-300" onClick={() => setDrawerOpen(false)}>
+        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 z-40 backdrop-blur-sm transition-all duration-300" onClick={() => setDrawerOpen(false)}>
           <div
-            className="absolute left-72 top-0 w-80 h-full bg-white/80 dark:bg-dark-800/80 shadow-2xl rounded-2xl p-4 overflow-y-auto backdrop-blur-lg border border-gray-200 dark:border-dark-700 transition-all duration-300"
+            className="absolute left-80 top-0 w-80 h-full bg-white/90 dark:bg-gray-900/90 shadow-2xl rounded-2xl p-4 overflow-y-auto backdrop-blur-xl border border-gray-200 dark:border-gray-700 transition-all duration-300 transform animate-slideInRight"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Settings</h2>
+              <h2 className="text-lg font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Advanced Settings</h2>
               <button
                 onClick={() => setDrawerOpen(false)}
-                className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-dark-700"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
             </div>
 
             <div className="space-y-4">
               {loading ? (
                 <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-2 border-t-blue-500 border-r-transparent border-b-blue-300 border-l-transparent"></div>
                 </div>
               ) : (
                 <>
-                  {/* Mode */}
-                  <SettingsControl
-                    loading={loading}
-                    label="Mode"
-                    value={mode}
-                    options={['Chat', 'RAG', 'Image']}
-                    onChange={setMode}
-                  />
-
-                  {/* Provider */}
-                  <SettingsControl
-                    loading={loading}
-                    label="Provider"
-                    value={provider}
-                    options={providers}
-                    onChange={handleProviderChange}
-                  />
-
-                  {/* Model */}
-                  <SettingsControl
-                    loading={loading}
-                    label="Model"
-                    value={model}
-                    options={models}
-                    onChange={setModel}
-                    isLoading={loadingModels}
-                  />
-
-                  {/* Omni-Chat */}
-                  <SettingsControl
-                    loading={loading}
-                    label="Persona"
-                    value={persona}
-                    options={personas}
-                    onChange={setPersona}
-                  />
-
-                  {/* Max Tokens */}
-                  <div className="mb-3">
-                    <div className="flex justify-between">
-                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Max.Tokens</label>
-                      <span className="text-sm text-gray-500">{Math.floor((maxTokens / 100) * 8000)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={maxTokens}
-                      onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 dark:bg-dark-600 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <div className="flex justify-between mt-1">
-                      <span className="text-xs text-gray-500">Min</span>
-                      <span className="text-xs text-gray-500">Max</span>
-                    </div>
-                  </div>
-
-                  {/* Quick Token Presets */}
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setMaxTokens(Math.floor((2000 / 8000) * 100))}
-                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-dark-700 rounded-md hover:bg-gray-200 dark:hover:bg-dark-600"
-                    >
-                      2000
-                    </button>
-                    <button
-                      onClick={() => setMaxTokens(Math.floor((5000 / 8000) * 100))}
-                      className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-800/40"
-                    >
-                      5000
-                    </button>
-                    <button
-                      onClick={() => setMaxTokens(100)}
-                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-dark-700 rounded-md hover:bg-gray-200 dark:hover:bg-dark-600"
-                    >
-                      8000
-                    </button>
-                  </div>
-
-                  {/* Temperature */}
+                  {/* System Prompt */}
                   <div className="mb-4">
-                    <div className="flex justify-between">
-                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Temperature</label>
-                      <span className="text-sm text-gray-500">{temperature / 100}</span>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1.5">System Prompt</label>
+                    <textarea
+                      className="w-full p-3 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm min-h-[100px]"
+                      placeholder="Enter system instructions for the AI..."
+                      rows={4}
+                    ></textarea>
+                  </div>
+
+                  {/* Context Window */}
+                  <div className="mb-4">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Context Window</label>
+                      <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                        5 messages
+                      </span>
                     </div>
                     <input
                       type="range"
-                      min="0"
-                      max="100"
-                      value={temperature}
-                      onChange={(e) => setTemperature(parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 dark:bg-dark-600 rounded-lg appearance-none cursor-pointer"
+                      min="1"
+                      max="20"
+                      value="5"
+                      className="w-full h-2 bg-gradient-to-r from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-600 rounded-lg appearance-none cursor-pointer"
                     />
-                    <div className="flex justify-between mt-1">
-                      <span className="text-xs text-gray-500">Precise</span>
-                      <span className="text-xs text-gray-500">Creative</span>
+                    <div className="flex justify-between mt-1.5">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Short Memory</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Long Memory</span>
                     </div>
                   </div>
 
-                  {/* Audio Response */}
-                  <div className="mb-5">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-400">Audio Response</label>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => setAudioResponse(false)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center ${!audioResponse ? 'bg-gray-200 dark:bg-gray-600' : 'bg-white dark:bg-dark-700'
-                            }`}
+                  {/* Plugin Support */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Plugins</label>
+                      <div className="relative inline-block w-10 align-middle select-none">
+                        <input
+                          type="checkbox"
+                          name="toggle"
+                          id="toggle"
+                          className="sr-only"
+                          defaultChecked
+                        />
+                        <label
+                          htmlFor="toggle"
+                          className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
                         >
-                          <span className="text-sm">Off</span>
-                        </button>
-                        <button
-                          onClick={() => setAudioResponse(true)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center ${audioResponse ? 'bg-gray-200 dark:bg-gray-600' : 'bg-white dark:bg-dark-700'
-                            }`}
-                        >
-                          <span className="text-sm">On</span>
-                        </button>
+                          <span
+                            className="block h-6 w-6 rounded-full bg-white shadow transform translate-x-0 transition-transform duration-200 ease-in-out dark:bg-blue-500"
+                          ></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input type="checkbox" className="rounded text-blue-500" defaultChecked />
+                        <span className="text-xs">Web Search</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input type="checkbox" className="rounded text-blue-500" defaultChecked />
+                        <span className="text-xs">Code Interpreter</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input type="checkbox" className="rounded text-blue-500" />
+                        <span className="text-xs">Image Generator</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input type="checkbox" className="rounded text-blue-500" />
+                        <span className="text-xs">File Analysis</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Save as Defaults */}
-                  <div className="mb-4 pt-2 border-t border-gray-200 dark:border-dark-700">
-                    <button
-                      onClick={handleSaveDefaults}
-                      className="w-full py-2 bg-primary-100 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 rounded-md hover:bg-primary-200 dark:hover:bg-primary-800/30 text-sm flex items-center justify-center"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      Save as Default Settings
-                    </button>
-                  </div>
-
-                  {/* Model Capabilities */}
-                  {(() => {
-                    const selectedModel = models.find(m => m.id === model);
-                    return selectedModel && Array.isArray(selectedModel.capabilities) && selectedModel.capabilities.length > 0;
-                  })() && (
-                      <div className="mb-4">
-                        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Capabilities</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {models.find(m => m.id === model)?.capabilities.map(capability => (
-                            <span key={capability} className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs rounded-full">
-                              {capability}
-                            </span>
-                          ))}
+                  {/* API Keys Management */}
+                  <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
+                        <div className="flex items-center">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                          <span className="text-xs">OpenAI</span>
                         </div>
+                        <button className="text-xs text-blue-600 dark:text-blue-400">Edit</button>
                       </div>
-                    )}
-
-                  {/* Provider Link */}
-                  {providers.find(p => p.id === provider)?.website && (
-                    <div className="mt-5 mb-3 text-center">
-                      <a
-                        href={providers.find(p => p.id === provider)?.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        View provider details
-                      </a>
+                      <div className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
+                        <div className="flex items-center">
+                          <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
+                          <span className="text-xs">Anthropic</span>
+                        </div>
+                        <button className="text-xs text-blue-600 dark:text-blue-400">Add</button>
+                      </div>
+                      <button className="w-full mt-2 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400">
+                        + Add more providers
+                      </button>
                     </div>
-                  )}
+                  </div>
                 </>
               )}
             </div>
@@ -615,168 +885,88 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
         </div>
       )}
 
-      <div className={`h-screen flex flex-col border-r border-gray-200 dark:border-dark-700 bg-white/70 dark:bg-dark-900/80 backdrop-blur-lg shadow-xl rounded-r-3xl transition-all duration-300 ${collapsed ? 'w-16' : 'w-72'}`}>
-        {/* Toggle button for mobile/collapsible sidebar */}
+      <div className={`h-screen flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/80 backdrop-blur-lg shadow-xl overflow-hidden transition-all duration-300 ${collapsed ? 'w-16' : 'w-80'}`}>
+        {/* Toggle button */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-20 bg-gradient-to-br from-white/80 via-gray-100/80 to-gray-200/80 dark:from-dark-800 dark:to-dark-900 border border-gray-200 dark:border-dark-700 rounded-full p-1 shadow-lg z-10 hover:scale-110 transition-transform duration-200"
+          className="absolute -right-3 top-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full p-1.5 shadow-lg z-10 hover:scale-110 transition-transform duration-200"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? (
-            <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          ) : (
-            <ChevronLeft className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          )}
+          <ChevronLeft className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
         </button>
 
-        {/* Header - Omni-Chat */}
-        <SidebarHeader collapsed={collapsed} />
-
-        {/* Main sidebar content with scroll */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent">
-          {!collapsed && (
-            <div className="p-4 pt-3">
-              <div className="flex items-center mb-3">
-                <h2 className="font-bold text-gray-700 dark:text-gray-300 mr-2">Settings:</h2>
-                <button
-                  onClick={() => setDrawerOpen(true)}
-                  className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-dark-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  aria-label="Open Settings"
-                >
-                  <Settings className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                </button>
-              </div>
-
-              {/* Model info */}
-              <div className="p-3 mb-4 border border-gray-200 dark:border-dark-600 rounded-md text-center">
-                {loadingModels ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <Loader2 className="animate-spin h-4 w-4 text-primary-500" />
-                    <p className="text-sm text-gray-500">Loading models...</p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    {selectedProviderName} | {selectedModelName}
-                  </p>
-                )}
-              </div>
-
-              {/* Removed search and chats sections here */}
+        {/* Header */}
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-4 py-4 border-b border-gray-200 dark:border-gray-700`}>
+          {collapsed ? (
+            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold shadow-md">
+              <Bot className="w-5 h-5" />
             </div>
+          ) : (
+            <>
+              <div className="flex items-center space-x-2">
+                <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold shadow-md">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">OmniChat</h1>
+              </div>
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="p-2 rounded-lg text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Sliders className="w-5 h-5" />
+              </button>
+            </>
           )}
         </div>
 
-        {/* Action buttons - moved to bottom */}
-        {!collapsed && (
-          <div className="p-4 border-t border-gray-200 dark:border-dark-700 bg-gradient-to-t from-white/80 via-gray-50/80 to-blue-50/80 dark:from-dark-900/80 dark:to-dark-800/80 rounded-b-3xl shadow-lg">
-            {/* Action buttons - first row */}
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-blue-400 via-green-400 to-cyan-400 hover:from-blue-500 hover:to-cyan-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleNewChatWithDefaults}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                <span>New</span>
-              </button>
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-yellow-400 via-orange-400 to-pink-400 hover:from-yellow-500 hover:to-pink-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleSave}
-              >
-                <Save className="w-4 h-4 mr-1" />
-                <span>Save</span>
-              </button>
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-cyan-400 via-blue-400 to-purple-400 hover:from-cyan-500 hover:to-purple-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleLoad}
-              >
-                <Upload className="w-4 h-4 mr-1" />
-                <span>Load</span>
-              </button>
-            </div>
+        {/* Bottom tabs navigation */}
+        <div className="mt-auto border-t border-gray-200 dark:border-gray-700 p-2 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm">
+          <div className={`flex ${collapsed ? 'flex-col space-y-4' : 'justify-around'} items-center`}>
+            <button
+              onClick={() => setActiveTab('chats')}
+              className={`p-2 rounded-lg flex flex-col items-center ${activeTab === 'chats'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                } transition-colors duration-200`}
+              aria-label="Chats"
+            >
+              <MessageSquare className="w-5 h-5" />
+              {!collapsed && <span className="text-xs mt-1">Chats</span>}
+            </button>
 
-            {/* Action buttons - second row */}
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-red-400 via-pink-400 to-yellow-400 hover:from-red-500 hover:to-yellow-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleDelete}
-              >
-                <Trash2 className="w-4 h-4 mr-1" />
-                <span>Delete</span>
-              </button>
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-blue-400 via-green-400 to-yellow-400 hover:from-blue-500 hover:to-yellow-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleExport}
-              >
-                <Download className="w-4 h-4 mr-1" />
-                <span>Export</span>
-              </button>
-              <button
-                className="py-2 px-1 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
-                onClick={handleRetry}
-              >
-                <Redo className="w-4 h-4 mr-1" />
-                <span>Retry</span>
-              </button>
-            </div>
+            <button
+              onClick={() => setActiveTab('docs')}
+              className={`p-2 rounded-lg flex flex-col items-center ${activeTab === 'docs'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                } transition-colors duration-200`}
+              aria-label="Documents"
+            >
+              <FileText className="w-5 h-5" />
+              {!collapsed && <span className="text-xs mt-1">Docs</span>}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`p-2 rounded-lg flex flex-col items-center ${activeTab === 'settings'
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                } transition-colors duration-200`}
+              aria-label="Settings"
+            >
+              <Settings className="w-5 h-5" />
+              {!collapsed && <span className="text-xs mt-1">Settings</span>}
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* Collapsed action buttons at bottom */}
-        {collapsed && (
-          <div className="flex flex-col items-center py-4 border-t border-gray-200 dark:border-dark-700 space-y-4">
-            <button
-              onClick={handleNewChatWithDefaults}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
-            >
-              <Plus className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </button>
-            <button
-              className="p-2 hover:bg-gray-100 dark:hover:bg-dark-700 rounded-md"
-              onClick={handleDelete}
-            >
-              <Trash2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            </button>
+        {/* Main content area */}
+        {!collapsed && (
+          <div className="flex-1 overflow-hidden">
+            {renderTab()}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// Convert to simpler SVG component for better performance
-function ChevronLeft(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="m15 18-6-6 6-6" />
-    </svg>
-  );
-}
-
-function ChevronRight(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
+    </>
   );
 }

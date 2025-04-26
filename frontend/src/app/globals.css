@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -23,10 +23,9 @@
   }
 
   body {
-    @apply text-gray-900 dark:text-gray-100 bg-white dark:bg-dark-800;
+    @apply text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-950;
     min-height: 100vh;
-    background: transparent;
-    color: #18181b;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     transition: background 0.4s, color 0.4s;
   }
 
@@ -38,11 +37,12 @@
   }
 
   .dark html {
-    background: linear-gradient(135deg, #18181b 0%, #312e81 100%);
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
+    height: 6px;
     background: transparent;
   }
 
@@ -74,15 +74,15 @@
   }
 
   .dark .glass {
-    background: rgba(24, 24, 27, 0.7);
-    border: 1px solid rgba(49, 46, 129, 0.18);
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(30, 27, 75, 0.18);
   }
 
-  /* Animations */
+  /* Animation keyframes */
   @keyframes fadeIn {
     from {
       opacity: 0;
-      transform: translateY(16px);
+      transform: translateY(10px);
     }
 
     to {
@@ -91,12 +91,137 @@
     }
   }
 
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(30px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes float {
+    0% {
+      transform: translateY(0px);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+
+    100% {
+      transform: translateY(0px);
+    }
+  }
+
+  @keyframes pulse-slow {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  @keyframes gradient-move {
+    0% {
+      background-position: 0% 50%;
+    }
+
+    50% {
+      background-position: 100% 50%;
+    }
+
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  /* Custom animations */
   .animate-fadeIn {
     animation: fadeIn 0.5s cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .animate-slideUp {
+    animation: slideUp 0.5s cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .animate-slideDown {
+    animation: slideDown 0.4s cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .animate-slideInRight {
+    animation: slideInRight 0.4s cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s infinite;
+  }
+
+  .animate-gradient-move {
+    animation: gradient-move 15s ease infinite;
+    background-size: 200% 200%;
+  }
+
+  /* Animation delays */
+  .animation-delay-100 {
+    animation-delay: 0.1s;
+  }
+
+  .animation-delay-200 {
+    animation-delay: 0.2s;
+  }
+
+  .animation-delay-300 {
+    animation-delay: 0.3s;
+  }
+
+  .animation-delay-400 {
+    animation-delay: 0.4s;
+  }
+
+  .animation-delay-500 {
+    animation-delay: 0.5s;
   }
 }
 
 @layer components {
+
+  /* Chat message styling */
   .message-content {
     @apply prose dark:prose-invert max-w-none;
   }
@@ -118,11 +243,13 @@
   }
 
   .message-content pre {
-    @apply p-3 my-4 bg-gray-100 dark:bg-dark-700 rounded-md overflow-x-auto;
+    @apply p-3 my-4 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto;
+    position: relative;
   }
 
   .message-content code {
-    @apply bg-gray-100 dark:bg-dark-700 px-1.5 py-0.5 rounded-md text-sm;
+    @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-md text-sm;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 
   .message-content pre code {
@@ -147,23 +274,65 @@
   }
 
   .message-content blockquote {
-    @apply border-l-4 border-gray-300 dark:border-dark-500 pl-4 my-3 italic;
+    @apply border-l-4 border-blue-200 dark:border-blue-800 pl-4 my-3 italic bg-blue-50/50 dark:bg-blue-900/20 py-2 rounded-r-md;
   }
 
   .message-content table {
-    @apply w-full text-left border-collapse my-4;
+    @apply w-full text-left border-collapse my-4 rounded-lg overflow-hidden;
   }
 
   .message-content th,
   .message-content td {
-    @apply p-2 border border-gray-300 dark:border-dark-600;
+    @apply p-2 border border-gray-200 dark:border-gray-700;
   }
 
   .message-content th {
-    @apply bg-gray-100 dark:bg-dark-700;
+    @apply bg-gray-100 dark:bg-gray-800 font-semibold;
   }
 
   .message-content a {
-    @apply text-primary-600 dark:text-primary-400 hover:underline;
+    @apply text-blue-600 dark:text-blue-400 hover:underline;
+  }
+
+  /* Custom message styling */
+  .user-message {
+    @apply bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-tr-sm shadow-md;
+  }
+
+  .assistant-message {
+    @apply bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm;
+  }
+
+  /* Copy button for code blocks */
+  .copy-button {
+    @apply absolute top-2 right-2 p-1 rounded-md bg-gray-200 dark:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity text-gray-700 dark:text-gray-300;
+  }
+}
+
+/* Additional utility classes */
+@layer utilities {
+  .backdrop-blur-xs {
+    backdrop-filter: blur(2px);
+  }
+
+  .backdrop-blur-sm {
+    backdrop-filter: blur(4px);
+  }
+
+  .backdrop-blur-md {
+    backdrop-filter: blur(8px);
+  }
+
+  .backdrop-blur-lg {
+    backdrop-filter: blur(12px);
+  }
+
+  .backdrop-blur-xl {
+    backdrop-filter: blur(16px);
+  }
+
+  .bg-clip-text {
+    -webkit-background-clip: text;
+    background-clip: text;
   }
 }

@@ -1,14 +1,37 @@
-import { Bot } from 'lucide-react';
+import { Sparkles, Bot, Cpu } from 'lucide-react';
 import React from 'react';
 
 export function SidebarHeader({ collapsed }: { collapsed: boolean }) {
   return (
-    <div className="p-6 border-b border-primary-100/30 dark:border-primary-900/30 flex justify-center items-center bg-gradient-to-r from-primary-100/40 via-secondary-50/40 to-secondary-100/40 dark:from-primary-900/40 dark:via-secondary-900/40 dark:to-secondary-950/40 rounded-t-3xl animate-gradient-move">
+    <div className={`${collapsed ? 'py-4' : 'py-6'} border-b border-gray-200 dark:border-gray-700 flex justify-center items-center bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-900/20 dark:via-indigo-900/20 dark:to-purple-900/20`}>
       {!collapsed ? (
-        <h1 className="text-2xl font-extrabold tracking-tight text-primary-800 dark:text-primary-100 font-sans drop-shadow-lg" style={{letterSpacing: '0.02em'}}>Omni-Chat</h1>
+        <div className="flex items-center space-x-2">
+          <div className="relative">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+              <Bot className="w-6 h-6 text-white" aria-label="OmniChat" />
+            </div>
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-br from-pink-500 to-purple-500 rounded-full flex items-center justify-center shadow-sm">
+              <Sparkles className="w-3 h-3 text-white" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">OmniChat</h1>
+            <div className="flex items-center">
+              <div className="h-1.5 w-1.5 rounded-full bg-green-500 mr-1"></div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">AI Assistant</p>
+            </div>
+          </div>
+        </div>
       ) : (
-        <Bot className="w-7 h-7 text-primary-600 dark:text-primary-400 animate-bounce" aria-label="Omni-Chat" />
+        <div className="relative">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-md animate-pulse-slow">
+            <Bot className="w-5 h-5 text-white" aria-label="OmniChat" />
+          </div>
+          <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-pink-500 to-purple-500 rounded-full flex items-center justify-center shadow-sm">
+            <Sparkles className="w-2.5 h-2.5 text-white" />
+          </div>
+        </div>
       )}
     </div>
   );
-} 
+}

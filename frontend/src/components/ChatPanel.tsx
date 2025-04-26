@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { MessageSquare, Send, RefreshCw, Bot } from 'lucide-react';
+import { MessageSquare, Send, RefreshCw, Bot, Sparkles, User, PanelRight, Bookmark, MoreHorizontal, Check } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
 
@@ -16,7 +16,17 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showFallbackMessage, setShowFallbackMessage] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Example message suggestions
+  const suggestions = [
+    "Explain how large language models work",
+    "Write a Python script to analyze sentiment in tweets",
+    "Summarize the key features of React 18",
+    "What are the best practices for API security?"
+  ];
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -27,6 +37,14 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   useEffect(() => {
     scrollToBottom();
   }, [chat.messages, scrollToBottom]);
+
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [inputValue]);
 
   // Check API connectivity with debounce
   useEffect(() => {
@@ -75,17 +93,18 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   }, []);
 
   // Memoize handleSendMessage to avoid unnecessary recreations
-  const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() || isLoading) return;
+  const handleSendMessage = useCallback(async (message = inputValue) => {
+    if (!message.trim() || isLoading) return;
 
     try {
       setIsLoading(true);
       setErrorMessage(null);
+      setShowSuggestions(false);
 
       const userMessage: Message = {
         message_id: `temp-${Date.now()}`,
         role: 'user',
-        content: inputValue,
+        content: message,
         created_at: new Date().toISOString(),
       };
 
@@ -101,7 +120,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       try {
         // Attempt to send the message to the API
         const response = await sendChatMessage(
-          inputValue,
+          message,
           chat.chat_id,
           chat.provider,
           chat.model,
@@ -148,6 +167,11 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [handleSendMessage]);
 
+  // Use suggestion as input
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    handleSendMessage(suggestion);
+  }, [handleSendMessage]);
+
   // Handle running code from code blocks
   const handleRunCode = useCallback(async (code: string, language?: string) => {
     try {
@@ -175,7 +199,14 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const assistantMessage: Message = {
         message_id: `exec-${Date.now()}`,
         role: 'assistant',
-        content: `Executing the code...`,
+        content: `<div class="flex items-center space-x-2">
+          <div class="animate-pulse">
+            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block"></div>
+            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block animation-delay-200"></div>
+            <div class="h-2 w-2 bg-blue-500 rounded-full inline-block animation-delay-400"></div>
+          </div>
+          <span>Executing code...</span>
+        </div>`,
         created_at: new Date().toISOString(),
       };
 
@@ -260,7 +291,15 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const outputMessage: Message = {
         message_id: `output-${Date.now()}`,
         role: 'assistant',
-        content: `**Code execution result:**\n\`\`\`\n${result.output || 'Command executed successfully with no output.'}\n\`\`\``,
+        content: `<div class="flex flex-col space-y-2">
+          <div class="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+            <Check className="w-4 h-4" />
+            <span class="font-medium">Code executed successfully</span>
+          </div>
+          <div class="bg-gray-100 dark:bg-gray-800 rounded-md p-3 overflow-auto">
+            <pre class="whitespace-pre-wrap">${result.output || 'Command executed with no output.'}</pre>
+          </div>
+        </div>`,
         created_at: new Date().toISOString(),
       };
 
@@ -281,7 +320,14 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const errorOutput: Message = {
         message_id: `error-${Date.now()}`,
         role: 'assistant',
-        content: `**Error executing code:**\n\`\`\`\n${error instanceof Error ? error.message : 'Unknown error occurred'}\n\`\`\``,
+        content: `<div class="flex flex-col space-y-2">
+          <div class="flex items-center space-x-2 text-red-600 dark:text-red-400">
+            <span class="font-medium">Error executing code</span>
+          </div>
+          <div class="bg-red-50 dark:bg-red-900/20 rounded-md p-3 overflow-auto">
+            <pre class="whitespace-pre-wrap text-red-800 dark:text-red-200">${error instanceof Error ? error.message : 'Unknown error occurred'}</pre>
+          </div>
+        </div>`,
         created_at: new Date().toISOString(),
       };
 
@@ -296,18 +342,37 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   // Use memo for empty chat UI to prevent re-renders
   const emptyChatUI = useMemo(() => (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-      <div className="mb-4 p-4 rounded-full bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 dark:from-dark-800 dark:to-dark-700 shadow-lg animate-fadeIn">
-        <MessageSquare className="w-8 h-8 text-primary-500" />
+      <div className="mb-6 p-5 rounded-full bg-gradient-to-br from-blue-400 via-indigo-400 to-purple-400 dark:from-blue-600 dark:via-indigo-600 dark:to-purple-600 shadow-lg animate-float">
+        <Sparkles className="w-12 h-12 text-white" />
       </div>
-      <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-gray-100 animate-fadeIn">Start a conversation</h2>
-      <p className="text-base text-gray-500 dark:text-gray-400 max-w-md animate-fadeIn">
+      <h2 className="text-3xl font-bold mb-3 text-gray-800 dark:text-gray-100 animate-fadeIn bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 inline-block text-transparent bg-clip-text">Start a conversation</h2>
+      <p className="text-base text-gray-600 dark:text-gray-300 max-w-md text-center animate-fadeIn mb-8">
         Send a message to start chatting with the AI assistant using {chat.model}.
       </p>
+
+      <div className="w-full max-w-lg mt-4 space-y-3 animate-fadeIn">
+        <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-2">Try one of these examples:</p>
+        {suggestions.map((suggestion, index) => (
+          <button
+            key={index}
+            onClick={() => handleSuggestionClick(suggestion)}
+            className="w-full p-3 text-left rounded-xl border border-blue-100 dark:border-blue-900 bg-white/80 dark:bg-gray-800/80 hover:bg-blue-50 dark:hover:bg-blue-900/30 backdrop-blur-sm shadow-sm hover:shadow-md transition-all duration-200 text-gray-800 dark:text-gray-200"
+          >
+            <div className="flex items-center">
+              <span className="p-1.5 rounded-md bg-blue-100 dark:bg-blue-800 mr-3">
+                <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-300" />
+              </span>
+              {suggestion}
+            </div>
+          </button>
+        ))}
+      </div>
+
       {showFallbackMessage && (
-        <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
+        <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-xl shadow-sm text-sm max-w-md border border-amber-200 dark:border-amber-800">
           <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
           <button
-            className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
+            className="mt-3 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
             onClick={() => window.location.reload()}
           >
             <RefreshCw className="w-3 h-3 mr-1" />
@@ -316,12 +381,12 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
     </div>
-  ), [chat.model, showFallbackMessage]);
+  ), [chat.model, showFallbackMessage, suggestions, handleSuggestionClick]);
 
   return (
-    <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-dark-900 dark:via-dark-800 dark:to-dark-900 transition-colors duration-300">
+    <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
-        <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-md m-4 flex items-center justify-between">
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-lg rounded-l-md m-4 flex items-center justify-between backdrop-blur-sm">
           <span>Using fallback mode - Backend API is unavailable</span>
           <button
             onClick={() => setShowFallbackMessage(false)}
@@ -335,27 +400,37 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       {chat.messages.length === 0
         ? emptyChatUI
         : (
-          <div className="flex-1 overflow-y-auto px-2 py-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
-            {chat.messages.map((msg) => (
+          <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
+            {chat.messages.map((msg, index) => (
               <div
                 key={msg.message_id}
-                className={`flex items-end space-x-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
+                className={`group flex space-x-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
+                style={{ animationDelay: `${index * 0.05}s` }}
               >
                 {msg.role === 'assistant' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-white font-bold shadow-md">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold shadow-md">
                     <Bot className="w-5 h-5" />
                   </div>
                 )}
-                <div className={`max-w-lg px-4 py-2 rounded-2xl shadow-md text-base font-medium ${msg.role === 'user'
-                    ? 'bg-gradient-to-br from-green-400 via-blue-200 to-white text-gray-900'
-                    : 'bg-gradient-to-br from-white via-blue-100 to-purple-100 dark:from-dark-800 dark:to-dark-700 text-gray-800 dark:text-gray-100'
-                  } transition-all duration-200`}
+                <div
+                  className={`relative max-w-2xl px-5 py-3 ${msg.role === 'user'
+                    ? 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-tr-sm'
+                    : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm'
+                    } transition-all duration-200 hover:shadow-md`}
                 >
-                  {msg.content}
+                  <div className="text-sm opacity-0 group-hover:opacity-100 absolute top-0 right-0 -mt-6 flex space-x-1 transition-opacity duration-200">
+                    <button className="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
+                      <Bookmark className="w-4 h-4" />
+                    </button>
+                    <button className="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="prose dark:prose-invert prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: msg.content }} />
                 </div>
                 {msg.role === 'user' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-400 flex items-center justify-center text-white font-bold shadow-md">
-                    <span className="font-bold">U</span>
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center text-white font-bold shadow-md">
+                    <User className="w-5 h-5" />
                   </div>
                 )}
               </div>
@@ -366,43 +441,86 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       }
 
       {errorMessage && (
-        <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 text-yellow-800 dark:bg-yellow-900/30 dark:border-yellow-800 dark:text-yellow-200 text-sm rounded flex justify-between items-center">
+        <div className="mx-4 mb-3 p-3 bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200 text-sm rounded-lg flex justify-between items-center shadow-md backdrop-blur-sm">
           <span>{errorMessage}</span>
           <button
             onClick={() => setErrorMessage(null)}
-            className="ml-2 p-1 hover:bg-yellow-100 dark:hover:bg-yellow-800 rounded-full"
+            className="ml-2 p-1 hover:bg-red-100 dark:hover:bg-red-800 rounded-full"
           >
             <span className="text-xs">✕</span>
           </button>
         </div>
       )}
 
-      <div className="absolute left-0 right-0 bottom-0 px-4 pb-4">
-        <div className="mx-auto max-w-2xl">
-          <div className="rounded-2xl shadow-2xl bg-white/80 dark:bg-dark-800/80 backdrop-blur-lg p-2 flex items-end space-x-2 animate-fadeIn">
-            <textarea
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-dark-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100"
-              rows={3}
-              disabled={isLoading}
-            />
-            <button
-              onClick={handleSendMessage}
-              className={`p-2 rounded-md ${isLoading || !inputValue.trim()
-                  ? 'bg-gray-300 dark:bg-dark-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                  : 'bg-primary-500 hover:bg-primary-600 text-white'
-                }`}
-              disabled={isLoading || !inputValue.trim()}
-            >
-              {isLoading ? (
-                <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin" />
-              ) : (
-                <Send className="w-6 h-6" />
-              )}
-            </button>
+      <div className="px-4 pb-4 pt-2 bg-gradient-to-t from-white/80 via-white/60 to-transparent dark:from-gray-900/80 dark:via-gray-900/60 dark:to-transparent backdrop-blur-sm">
+        <div className="relative mx-auto max-w-3xl">
+          <div className="relative rounded-2xl shadow-xl bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl p-2 animate-fadeIn border border-gray-100 dark:border-gray-700">
+            {showSuggestions && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 p-2 z-10 transition-all duration-200 animate-slideDown">
+                <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-500 dark:text-gray-400 font-medium border-b border-gray-100 dark:border-gray-700 mb-2">
+                  <span>Suggestions</span>
+                  <button onClick={() => setShowSuggestions(false)} className="hover:text-gray-700 dark:hover:text-gray-200">✕</button>
+                </div>
+                <div className="space-y-1.5">
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg text-sm text-gray-700 dark:text-gray-200 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-end space-x-2">
+              <div className="relative flex-1">
+                <textarea
+                  ref={textareaRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type a message..."
+                  className="w-full px-4 py-3.5 pr-12 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/60 dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 resize-none transition-all duration-200"
+                  rows={1}
+                  disabled={isLoading}
+                />
+                <button
+                  onClick={() => setShowSuggestions(!showSuggestions)}
+                  className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <Sparkles className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                onClick={() => handleSendMessage()}
+                className={`p-3.5 rounded-xl ${isLoading || !inputValue.trim()
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md hover:shadow-lg'
+                  } transition-all duration-200`}
+                disabled={isLoading || !inputValue.trim()}
+              >
+                {isLoading ? (
+                  <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+
+            <div className="flex justify-between items-center px-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex items-center">
+                <div className="w-2 h-2 rounded-full bg-green-500 mr-1.5"></div>
+                <span>Using {chat.provider} / {chat.model}</span>
+              </div>
+              <div className="flex space-x-2">
+                <button className="hover:text-gray-700 dark:hover:text-gray-200">
+                  <PanelRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
