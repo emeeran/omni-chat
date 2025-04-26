@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,7 +10,7 @@
     --foreground: 222.2 84% 4.9%;
     --border: 214.3 31.8% 91.4%;
   }
-  
+
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -17,10 +19,80 @@
 
   * {
     @apply border-border;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s, border 0.2s;
   }
-  
+
   body {
     @apply text-gray-900 dark:text-gray-100 bg-white dark:bg-dark-800;
+    min-height: 100vh;
+    background: transparent;
+    color: #18181b;
+    transition: background 0.4s, color 0.4s;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+    min-height: 100%;
+    scroll-behavior: smooth;
+  }
+
+  .dark html {
+    background: linear-gradient(135deg, #18181b 0%, #312e81 100%);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%);
+    border-radius: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+    outline: none;
+  }
+
+  /* Glassmorphism utility */
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.18);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border-radius: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .dark .glass {
+    background: rgba(24, 24, 27, 0.7);
+    border: 1px solid rgba(49, 46, 129, 0.18);
+  }
+
+  /* Animations */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.5s cubic-bezier(.4, 0, .2, 1);
   }
 }
 
@@ -32,64 +104,66 @@
   .message-content h1 {
     @apply text-2xl font-bold mt-6 mb-4;
   }
-  
+
   .message-content h2 {
     @apply text-xl font-bold mt-5 mb-3;
   }
-  
+
   .message-content h3 {
     @apply text-lg font-bold mt-4 mb-2;
   }
-  
+
   .message-content p {
     @apply my-2;
   }
-  
+
   .message-content pre {
     @apply p-3 my-4 bg-gray-100 dark:bg-dark-700 rounded-md overflow-x-auto;
   }
-  
+
   .message-content code {
     @apply bg-gray-100 dark:bg-dark-700 px-1.5 py-0.5 rounded-md text-sm;
   }
-  
+
   .message-content pre code {
     @apply bg-transparent p-0 text-sm;
   }
-  
-  .message-content ul, .message-content ol {
+
+  .message-content ul,
+  .message-content ol {
     @apply my-2 pl-6;
   }
-  
+
   .message-content ul {
     @apply list-disc;
   }
-  
+
   .message-content ol {
     @apply list-decimal;
   }
-  
+
   .message-content li {
     @apply mb-1;
   }
-  
+
   .message-content blockquote {
     @apply border-l-4 border-gray-300 dark:border-dark-500 pl-4 my-3 italic;
   }
-  
+
   .message-content table {
     @apply w-full text-left border-collapse my-4;
   }
-  
-  .message-content th, .message-content td {
+
+  .message-content th,
+  .message-content td {
     @apply p-2 border border-gray-300 dark:border-dark-600;
   }
-  
+
   .message-content th {
     @apply bg-gray-100 dark:bg-dark-700;
   }
-  
+
   .message-content a {
     @apply text-primary-600 dark:text-primary-400 hover:underline;
   }
-} 
+}

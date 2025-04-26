@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, RefreshCw } from 'lucide-react';
+import { MessageSquare, Send, RefreshCw, Bot } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
 
@@ -271,7 +271,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   };
 
   return (
-    <div className="relative flex flex-col h-full">
+    <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-dark-900 dark:via-dark-800 dark:to-dark-900 transition-colors duration-300">
       {showFallbackMessage && (
         <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-md m-4 flex items-center justify-between">
           <span>Using fallback mode - Backend API is unavailable</span>
@@ -285,35 +285,48 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       )}
 
       {chat.messages.length === 0 ? (
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="mb-4 p-4 rounded-full bg-primary-50 dark:bg-primary-900/20">
-              <MessageSquare className="w-8 h-8 text-primary-500" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Start a conversation</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
-              Send a message to start chatting with the AI assistant using {chat.model}.
-            </p>
-            {showFallbackMessage && (
-              <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
-                <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
-                <button
-                  className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
-                  onClick={() => window.location.reload()}
-                >
-                  <RefreshCw className="w-3 h-3 mr-1" />
-                  <span>Retry connection</span>
-                </button>
-              </div>
-            )}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
+          <div className="mb-4 p-4 rounded-full bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 dark:from-dark-800 dark:to-dark-700 shadow-lg animate-fadeIn">
+            <MessageSquare className="w-8 h-8 text-primary-500" />
           </div>
+          <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-gray-100 animate-fadeIn">Start a conversation</h2>
+          <p className="text-base text-gray-500 dark:text-gray-400 max-w-md animate-fadeIn">
+            Send a message to start chatting with the AI assistant using {chat.model}.
+          </p>
+          {showFallbackMessage && (
+            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
+              <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
+              <button
+                className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
+                onClick={() => window.location.reload()}
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                <span>Retry connection</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
-        <ChatMessages
-          messages={chat.messages}
-          isLoading={isLoading}
-          onRunCode={handleRunCode}
-        />
+        <div className="flex-1 overflow-y-auto px-2 py-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
+          {chat.messages.map((msg, idx) => (
+            <div key={msg.message_id} className={`flex items-end space-x-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
+              {msg.role === 'assistant' && (
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-white font-bold shadow-md">
+                  <Bot className="w-5 h-5" />
+                </div>
+              )}
+              <div className={`max-w-lg px-4 py-2 rounded-2xl shadow-md text-base font-medium ${msg.role === 'user' ? 'bg-gradient-to-br from-green-400 via-blue-200 to-white text-gray-900' : 'bg-gradient-to-br from-white via-blue-100 to-purple-100 dark:from-dark-800 dark:to-dark-700 text-gray-800 dark:text-gray-100'} transition-all duration-200`}>
+                {msg.content}
+              </div>
+              {msg.role === 'user' && (
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-400 flex items-center justify-center text-white font-bold shadow-md">
+                  <span className="font-bold">U</span>
+                </div>
+              )}
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
       )}
 
       {errorMessage && (
@@ -328,45 +341,35 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
-      <div className="p-4 border-t border-gray-200 dark:border-dark-700">
-        <div className="relative">
-          <textarea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-dark-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100"
-            rows={3}
-            disabled={isLoading}
-          />
-          <button
-            onClick={handleSendMessage}
-            className={`absolute right-2 bottom-2 p-2 rounded-md ${isLoading || !inputValue.trim()
+      <div className="absolute left-0 right-0 bottom-0 px-4 pb-4">
+        <div className="mx-auto max-w-2xl">
+          <div className="rounded-2xl shadow-2xl bg-white/80 dark:bg-dark-800/80 backdrop-blur-lg p-2 flex items-end space-x-2 animate-fadeIn">
+            <textarea
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a message..."
+              className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-dark-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100"
+              rows={3}
+              disabled={isLoading}
+            />
+            <button
+              onClick={handleSendMessage}
+              className={`p-2 rounded-md ${isLoading || !inputValue.trim()
                 ? 'bg-gray-300 dark:bg-dark-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                 : 'bg-primary-500 hover:bg-primary-600 text-white'
-              }`}
-            disabled={isLoading || !inputValue.trim()}
-          >
-            {isLoading ? (
-              <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin" />
-            ) : (
-              <Send className="w-6 h-6" />
-            )}
-          </button>
-        </div>
-        {showFallbackMessage && (
-          <div className="mt-2 text-xs text-right">
-            <button
-              onClick={() => window.location.reload()}
-              className="text-primary-500 hover:text-primary-600 dark:text-primary-400 flex items-center justify-end ml-auto"
+                }`}
+              disabled={isLoading || !inputValue.trim()}
             >
-              <RefreshCw className="w-3 h-3 mr-1" />
-              <span>Retry connection</span>
+              {isLoading ? (
+                <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin" />
+              ) : (
+                <Send className="w-6 h-6" />
+              )}
             </button>
           </div>
-        )}
+        </div>
       </div>
-      <div ref={messagesEndRef} />
     </div>
   );
 }

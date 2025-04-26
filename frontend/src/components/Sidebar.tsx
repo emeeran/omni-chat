@@ -289,9 +289,9 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
     <div className="relative">
       {/* Settings drawer */}
       {drawerOpen && !collapsed && (
-        <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setDrawerOpen(false)}>
+        <div className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-all duration-300" onClick={() => setDrawerOpen(false)}>
           <div
-            className="absolute left-72 top-0 w-80 h-full bg-white dark:bg-dark-800 shadow-xl p-4 overflow-y-auto"
+            className="absolute left-72 top-0 w-80 h-full bg-white/80 dark:bg-dark-800/80 shadow-2xl rounded-2xl p-4 overflow-y-auto backdrop-blur-lg border border-gray-200 dark:border-dark-700 transition-all duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -532,12 +532,11 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
         </div>
       )}
 
-      <div className={`h-screen flex flex-col border-r border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 relative transition-all duration-300 ${collapsed ? 'w-16' : 'w-72'
-        }`}>
+      <div className={`h-screen flex flex-col border-r border-gray-200 dark:border-dark-700 bg-white/70 dark:bg-dark-900/80 backdrop-blur-lg shadow-xl rounded-r-3xl transition-all duration-300 ${collapsed ? 'w-16' : 'w-72'}`}>
         {/* Toggle button for mobile/collapsible sidebar */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-20 bg-white dark:bg-dark-800 border border-gray-200 dark:border-dark-700 rounded-full p-1 shadow-md z-10 hover:bg-gray-50 dark:hover:bg-dark-700"
+          className="absolute -right-3 top-20 bg-gradient-to-br from-white/80 via-gray-100/80 to-gray-200/80 dark:from-dark-800 dark:to-dark-900 border border-gray-200 dark:border-dark-700 rounded-full p-1 shadow-lg z-10 hover:scale-110 transition-transform duration-200"
         >
           {collapsed ? (
             <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -547,9 +546,9 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
         </button>
 
         {/* Header - Persona */}
-        <div className="p-4 border-b border-gray-200 dark:border-dark-700 flex justify-center items-center">
+        <div className="p-4 border-b border-gray-200 dark:border-dark-700 flex justify-center items-center bg-gradient-to-r from-blue-50/60 via-white/60 to-purple-50/60 dark:from-dark-900/60 dark:to-dark-800/60 rounded-t-3xl">
           {!collapsed && (
-            <h1 className="text-lg font-medium text-gray-700 dark:text-gray-300">Persona</h1>
+            <h1 className="text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 font-sans">Persona</h1>
           )}
           {collapsed && (
             <Bot className="w-6 h-6 text-primary-600 dark:text-primary-400" />
@@ -557,7 +556,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
         </div>
 
         {/* Main sidebar content with scroll */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent">
           {!collapsed && (
             <div className="p-4 pt-3">
               <h2 className="font-bold text-gray-700 dark:text-gray-300 mb-3">Settings:</h2>
@@ -620,11 +619,11 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
 
         {/* Action buttons - moved to bottom */}
         {!collapsed && (
-          <div className="p-4 border-t border-gray-200 dark:border-dark-700">
+          <div className="p-4 border-t border-gray-200 dark:border-dark-700 bg-gradient-to-t from-white/80 via-gray-50/80 to-blue-50/80 dark:from-dark-900/80 dark:to-dark-800/80 rounded-b-3xl shadow-lg">
             {/* Action buttons - first row */}
             <div className="grid grid-cols-3 gap-2 mb-2">
               <button
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
                 onClick={handleRetry}
               >
                 <Redo className="w-4 h-4 mr-1" />
@@ -632,13 +631,13 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
               </button>
               <button
                 onClick={handleNewChatWithDefaults}
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-green-400 via-blue-400 to-purple-400 hover:from-green-500 hover:to-purple-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
               >
                 <Plus className="w-4 h-4 mr-1" />
                 <span>New</span>
               </button>
               <button
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-yellow-400 via-orange-400 to-pink-400 hover:from-yellow-500 hover:to-pink-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
                 onClick={handleSave}
               >
                 <Save className="w-4 h-4 mr-1" />
@@ -649,21 +648,21 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
             {/* Action buttons - second row */}
             <div className="grid grid-cols-3 gap-2">
               <button
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-cyan-400 via-blue-400 to-purple-400 hover:from-cyan-500 hover:to-purple-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
                 onClick={handleLoad}
               >
                 <Upload className="w-4 h-4 mr-1" />
                 <span>Load</span>
               </button>
               <button
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-red-400 via-pink-400 to-yellow-400 hover:from-red-500 hover:to-yellow-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
                 onClick={handleDelete}
               >
                 <Trash2 className="w-4 h-4 mr-1" />
                 <span>Delete</span>
               </button>
               <button
-                className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md flex items-center justify-center"
+                className="py-2 px-1 bg-gradient-to-br from-blue-400 via-green-400 to-yellow-400 hover:from-blue-500 hover:to-yellow-500 text-white text-sm rounded-xl flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150"
                 onClick={handleExport}
               >
                 <Download className="w-4 h-4 mr-1" />
