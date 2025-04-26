@@ -39,15 +39,6 @@ const ChatList = memo(({
   onChatSelect: (id: string) => void;
   onDeleteChat: (id: string) => void;
 }) => {
-  if (chats.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-500 dark:text-gray-400 flex flex-col items-center space-y-4">
-        <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600" />
-        <p>No conversations yet</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-2 py-2">
       {chats.map((chat) => (
@@ -472,6 +463,14 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
     alert('Settings saved as defaults for new chats');
   }, [provider, model, persona, maxTokens]);
 
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [loadSearch, setLoadSearch] = useState('');
+
+  // Filtered chats for load modal
+  const filteredLoadChats = loadSearch
+    ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
+    : chats;
+
   const renderTab = useCallback(() => {
     if (activeTab === 'settings') {
       return (
@@ -692,40 +691,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
       // Chats tab
       return (
         <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Conversations</h2>
-            <button
-              onClick={handleNewChatWithDefaults}
-              className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
-              aria-label="New Chat"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Search */}
-          <div className="relative mb-4">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-gray-400" />
-            </div>
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search chats... (Ctrl+K)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white/70 dark:bg-gray-800/70 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 backdrop-blur-sm"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center"
-              >
-                <X className="h-4 w-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
-              </button>
-            )}
-          </div>
-
           <div className="overflow-y-auto max-h-[calc(100vh-200px)] scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent pr-1">
             <ChatList
               chats={filteredChats}
@@ -944,16 +909,94 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
             </button>
           </div>
         </div>
-        {/* Provider | Model display at the very bottom */}
-        <div className="mb-3 mt-2 px-4 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center">
-          <span className="truncate max-w-[90px]" title={selectedProviderName}>{selectedProviderName}</span>
-          <span className="mx-1">|</span>
-          <span className="truncate max-w-[90px]" title={selectedModelName}>{selectedModelName}</span>
-        </div>
         {/* Main content area */}
         {!collapsed && (
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden flex flex-col">
             {renderTab()}
+            {/* Button grid below chat list */}
+            <div className="px-4 py-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={handleRetry}
+                >
+                  Retry
+                </button>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={onNewChat}
+                >
+                  New
+                </button>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={handleSave}
+                >
+                  Save
+                </button>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={() => setShowLoadModal(true)}
+                >
+                  Load
+                </button>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={handleDelete}
+                >
+                  Delete
+                </button>
+                <button
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
+                  onClick={handleExport}
+                >
+                  Export
+                </button>
+              </div>
+            </div>
+            {/* Provider | Model display at the very bottom */}
+            <div className="mb-3 mt-2 px-4 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center">
+              <span className="truncate max-w-[90px]" title={selectedProviderName}>{selectedProviderName}</span>
+              <span className="mx-1">|</span>
+              <span className="truncate max-w-[90px]" title={selectedModelName}>{selectedModelName}</span>
+            </div>
+          </div>
+        )}
+        {/* Load Modal */}
+        {showLoadModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md">
+              <h2 className="text-lg font-bold mb-2">Load Conversation</h2>
+              <input
+                className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+                placeholder="Search conversations..."
+                value={loadSearch}
+                onChange={e => setLoadSearch(e.target.value)}
+              />
+              <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredLoadChats.length === 0 ? (
+                  <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+                ) : (
+                  filteredLoadChats.map(chat => (
+                    <div
+                      key={chat.chat_id}
+                      className="py-2 px-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded transition-colors"
+                      onClick={() => { onChatSelect(chat.chat_id); setShowLoadModal(false); }}
+                    >
+                      <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                  onClick={() => setShowLoadModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
