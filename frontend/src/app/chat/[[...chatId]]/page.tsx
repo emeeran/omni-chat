@@ -1,14 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import ChatPanel from '@/components/ChatPanel';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 import { Chat, ChatSummary, getChat, getChats, deleteChat, exportChat, saveChat, retryChat } from '@/lib/api';
 import { saveAs } from 'file-saver';
 
-export default function ChatPage() {
-  const params = useParams();
+export default function ChatPage({ params }: { params: { chatId?: string[] } }) {
   const router = useRouter();
   const chatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
 
