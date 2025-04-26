@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import './theme-colors.css';
 
 @tailwind base;
 @tailwind components;
@@ -9,12 +10,66 @@
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --border: 214.3 31.8% 91.4%;
+    
+    /* Primary colors */
+    --primary-50: 193 98% 96%;
+    --primary-100: 192 94% 94%;
+    --primary-200: 193 87% 87%;
+    --primary-300: 193 82% 76%;
+    --primary-400: 193 79% 65%;
+    --primary-500: 193 76% 53%;
+    --primary-600: 193 80% 45%;
+    --primary-700: 193 84% 36%;
+    --primary-800: 193 88% 29%;
+    --primary-900: 193 92% 24%;
+    --primary-950: 193 96% 13%;
+    
+    /* Secondary colors */
+    --secondary-50: 187 65% 95%;
+    --secondary-100: 186 62% 90%;
+    --secondary-200: 186 59% 80%;
+    --secondary-300: 186 56% 65%;
+    --secondary-400: 186 53% 55%;
+    --secondary-500: 186 50% 45%;
+    --secondary-600: 186 47% 40%;
+    --secondary-700: 186 44% 35%;
+    --secondary-800: 186 41% 30%;
+    --secondary-900: 186 38% 25%;
+    --secondary-950: 186 35% 20%;
+    
+    /* UI theme colors */
+    --ui-background: 210 40% 98%;
+    --ui-foreground: 222 47% 11%;
+    --ui-card: 0 0% 100%;
+    --ui-card-foreground: 222 47% 11%;
+    --ui-border: 214.3 31.8% 91.4%;
+    --ui-input: 214.3 31.8% 91.4%;
+    --ui-primary: 222.2 47.4% 11.2%;
+    --ui-primary-foreground: 210 40% 98%;
+    --ui-muted: 210 40% 96.1%;
+    --ui-muted-foreground: 215.4 16.3% 46.9%;
+    --ui-accent: 210 40% 96.1%;
+    --ui-accent-foreground: 222.2 47.4% 11.2%;
   }
 
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
+    
+    /* Dark mode UI theme colors */
+    --ui-background: 222.2 84% 4.9%;
+    --ui-foreground: 210 40% 98%;
+    --ui-card: 222.2 84% 4.9%;
+    --ui-card-foreground: 210 40% 98%;
+    --ui-border: 217.2 32.6% 17.5%;
+    --ui-input: 217.2 32.6% 17.5%;
+    --ui-primary: 210 40% 98%;
+    --ui-primary-foreground: 222.2 47.4% 11.2%;
+    --ui-muted: 217.2 32.6% 17.5%;
+    --ui-muted-foreground: 215 20.2% 65.1%;
+    --ui-accent: 217.2 32.6% 17.5%;
+    --ui-accent-foreground: 210 40% 98%;
   }
 
   * {
@@ -31,7 +86,7 @@
 
   html {
     font-family: 'Inter', system-ui, sans-serif;
-    background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+    background: linear-gradient(135deg, #f8fafc 0%, #e0f7ff 100%);
     min-height: 100%;
     scroll-behavior: smooth;
   }
@@ -47,12 +102,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%);
+    background: linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%);
     border-radius: 8px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+    background: linear-gradient(135deg, #93c5fd 0%, #60a5fa 100%);
   }
 
   input,
@@ -65,12 +120,12 @@
 
   /* Glassmorphism utility */
   .glass {
-    background: rgba(255, 255, 255, 0.7);
-    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.18);
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.12);
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
     border-radius: 1.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
   }
 
   .dark .glass {
@@ -217,6 +272,21 @@
   .animation-delay-500 {
     animation-delay: 0.5s;
   }
+
+  /* User and assistant message styling */
+  .user-message {
+    @apply bg-gradient-to-br from-blue-400 to-indigo-400 text-white rounded-2xl rounded-tr-sm shadow-md;
+  }
+
+  .assistant-message {
+    @apply bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm;
+  }
+
+  /* Copy button for code blocks */
+  .copy-button {
+    @apply absolute top-2 right-2 p-1 rounded-md bg-gray-200 dark:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity text-gray-700 dark:text-gray-300;
+    @apply hover:bg-gray-300 dark:hover:bg-gray-600 z-10;
+  }
 }
 
 @layer components {
@@ -326,21 +396,6 @@
 
   .message-content .success-box {
     @apply bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 p-3 rounded-r my-4;
-  }
-
-  /* Custom message styling */
-  .user-message {
-    @apply bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl rounded-tr-sm shadow-md;
-  }
-
-  .assistant-message {
-    @apply bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm;
-  }
-
-  /* Copy button for code blocks */
-  .copy-button {
-    @apply absolute top-2 right-2 p-1 rounded-md bg-gray-200 dark:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity text-gray-700 dark:text-gray-300;
-    @apply hover:bg-gray-300 dark:hover:bg-gray-600 z-10;
   }
 }
 

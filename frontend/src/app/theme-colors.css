@@ -1,0 +1,71 @@
+/* Theme variations for the application */
+
+/* BLUE theme (default) */
+.theme-blue {
+  --primary-50: 191 100% 97%;
+  --primary-100: 192 94% 94%;
+  --primary-200: 193 87% 87%;
+  --primary-300: 193 82% 70%;
+  --primary-400: 193 79% 60%;
+  --primary-500: 193 76% 52%;
+  --primary-600: 193 80% 45%;
+  --primary-700: 193 84% 36%;
+  --primary-800: 193 88% 29%;
+  --primary-900: 193 92% 24%;
+}
+
+/* TEAL theme */
+.theme-teal {
+  --primary-50: 160 84% 97%;
+  --primary-100: 160 76% 92%;
+  --primary-200: 161 75% 82%;
+  --primary-300: 161 67% 66%;
+  --primary-400: 162 64% 51%;
+  --primary-500: 162 73% 40%;
+  --primary-600: 163 94% 31%;
+  --primary-700: 164 94% 25%;
+  --primary-800: 165 91% 21%;
+  --primary-900: 167 96% 15%;
+}
+
+/* PURPLE theme */
+.theme-purple {
+  --primary-50: 270 100% 98%;
+  --primary-100: 269 100% 95%;
+  --primary-200: 269 100% 91%;
+  --primary-300: 269 97% 83%;
+  --primary-400: 269 95% 75%;
+  --primary-500: 269 91% 65%;
+  --primary-600: 269 80% 56%;
+  --primary-700: 269 70% 47%;
+  --primary-800: 269 65% 40%;
+  --primary-900: 269 70% 32%;
+}
+
+/* GRAY theme */
+.theme-gray {
+  --primary-50: 210 40% 98%;
+  --primary-100: 210 38% 95%;
+  --primary-200: 214 32% 91%;
+  --primary-300: 213 27% 84%;
+  --primary-400: 215 20% 65%;
+  --primary-500: 215 16% 47%;
+  --primary-600: 215 19% 35%;
+  --primary-700: 215 25% 27%;
+  --primary-800: 217 33% 17%;
+  --primary-900: 222 47% 11%;
+}
+
+/* Fix for theme color application - set default to blue theme */
+:root:not(.theme-blue):not(.theme-teal):not(.theme-purple):not(.theme-gray) {
+  --primary-50: 191 100% 97%;
+  --primary-100: 192 94% 94%;
+  --primary-200: 193 87% 87%;
+  --primary-300: 193 82% 70%;
+  --primary-400: 193 79% 60%;
+  --primary-500: 193 76% 52%;
+  --primary-600: 193 80% 45%;
+  --primary-700: 193 84% 36%;
+  --primary-800: 193 88% 29%;
+  --primary-900: 193 92% 24%;
+} 

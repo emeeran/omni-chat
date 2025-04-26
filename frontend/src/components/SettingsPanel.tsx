@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save } from 'lucide-react';
+import { X, Save, Monitor, Moon, Sun, Palette } from 'lucide-react';
 import { Provider, Model, Persona, getProviders, getModels, getPersonas } from '@/lib/api';
+import { useTheme } from '@/hooks/useTheme';
 
 type SettingsPanelProps = {
   onClose: () => void;
@@ -27,6 +28,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [maxTokens, setMaxTokens] = useState<number>(2000);
   const [saveAsDefaults, setSaveAsDefaults] = useState<boolean>(false);
   const [defaultsSaved, setDefaultsSaved] = useState<boolean>(false);
+  
+  // Theme context from the simplified useTheme hook
+  const { theme, setTheme, colorTheme, setColorTheme } = useTheme();
 
   // Load any saved defaults on mount
   useEffect(() => {
@@ -258,7 +262,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   // Handle applying settings
   const applySettings = () => {
     // Apply the current settings
-
+    
     // Also save as defaults if that option is checked
     if (saveAsDefaults) {
       saveDefaults();
@@ -280,6 +284,103 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Theme Settings */}
+        <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold mb-3">Theme Settings</h3>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Mode</label>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setTheme("light")}
+                className={`flex items-center justify-center p-2 rounded-md ${
+                  theme === "light" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+                title="Light Mode"
+              >
+                <Sun className="w-5 h-5 mr-2" />
+                <span>Light</span>
+              </button>
+              <button
+                onClick={() => setTheme("dark")}
+                className={`flex items-center justify-center p-2 rounded-md ${
+                  theme === "dark" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+                title="Dark Mode"
+              >
+                <Moon className="w-5 h-5 mr-2" />
+                <span>Dark</span>
+              </button>
+              <button
+                onClick={() => setTheme("system")}
+                className={`flex items-center justify-center p-2 rounded-md ${
+                  theme === "system" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+                title="System Mode"
+              >
+                <Monitor className="w-5 h-5 mr-2" />
+                <span>System</span>
+              </button>
+            </div>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">Color Theme</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <button
+                onClick={() => setColorTheme("blue")}
+                className={`flex flex-col items-center justify-center p-3 rounded-md ${
+                  colorTheme === "blue" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+              >
+                <div className="w-full h-8 mb-2 rounded-md bg-gradient-to-r from-blue-400 to-blue-600"></div>
+                <span className="text-xs">Blue</span>
+              </button>
+              <button
+                onClick={() => setColorTheme("teal")}
+                className={`flex flex-col items-center justify-center p-3 rounded-md ${
+                  colorTheme === "teal" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+              >
+                <div className="w-full h-8 mb-2 rounded-md bg-gradient-to-r from-teal-400 to-teal-600"></div>
+                <span className="text-xs">Teal</span>
+              </button>
+              <button
+                onClick={() => setColorTheme("purple")}
+                className={`flex flex-col items-center justify-center p-3 rounded-md ${
+                  colorTheme === "purple" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+              >
+                <div className="w-full h-8 mb-2 rounded-md bg-gradient-to-r from-purple-400 to-purple-600"></div>
+                <span className="text-xs">Purple</span>
+              </button>
+              <button
+                onClick={() => setColorTheme("gray")}
+                className={`flex flex-col items-center justify-center p-3 rounded-md ${
+                  colorTheme === "gray" 
+                    ? "bg-primary-100 text-primary-700 border-2 border-primary-400" 
+                    : "bg-gray-100 dark:bg-dark-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-dark-600"
+                }`}
+              >
+                <div className="w-full h-8 mb-2 rounded-md bg-gradient-to-r from-gray-400 to-gray-600"></div>
+                <span className="text-xs">Gray</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <div>
           <label className="block text-sm font-medium mb-1">Mode</label>
           <select
