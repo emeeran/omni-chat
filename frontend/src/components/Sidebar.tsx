@@ -66,11 +66,6 @@ const ChatList = memo(({
             }
             <div className="flex flex-col">
               <span className="truncate text-sm font-medium">{chat.title || 'New Chat'}</span>
-              {chat.last_message && (
-                <span className="truncate text-xs text-gray-500 dark:text-gray-400">
-                  {chat.last_message}
-                </span>
-              )}
             </div>
           </div>
           <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -386,8 +381,7 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   // Filtered chats based on search query - memoize this
   const filteredChats = searchQuery
     ? chatsArray.filter(chat =>
-      chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (chat.last_message && chat.last_message.toLowerCase().includes(searchQuery.toLowerCase()))
+      chat.title.toLowerCase().includes(searchQuery.toLowerCase())
     )
     : chatsArray;
 

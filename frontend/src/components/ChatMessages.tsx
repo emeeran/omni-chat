@@ -275,7 +275,7 @@ const ChatMessages = memo(function ChatMessages({ messages, isLoading = false, o
           {/* Visible messages */}
           {visibleMessages.map((message) => (
             <ChatMessage
-              key={message.message_id || `${message.role}-${message.timestamp || Date.now()}`}
+              key={message.message_id || `${message.role}-${message.created_at}`}
               message={message}
               onRunCode={onRunCode}
             />

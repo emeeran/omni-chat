@@ -1,5 +1,5 @@
 import './globals.css';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { ApplicationThemeProvider } from '@/components/ApplicationThemeProvider';
 
@@ -13,6 +13,9 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: 'OmniChat - Multi-Provider AI Chat Platform',
   description: 'An enterprise-ready chat platform with support for multiple AI providers',
+};
+
+export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#e0f2fe' },
     { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
