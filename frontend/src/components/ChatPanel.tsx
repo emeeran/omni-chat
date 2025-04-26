@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { MessageSquare, Send, RefreshCw, Bot } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
@@ -18,31 +18,47 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const [showFallbackMessage, setShowFallbackMessage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
+  // Memoize scrollToBottom function
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
+  // Scroll chat to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [chat.messages]);
+  }, [chat.messages, scrollToBottom]);
 
-  // Check API connectivity on mount and set up periodic checks
+  // Check API connectivity with debounce
   useEffect(() => {
+    let isMounted = true;
+
     const checkApiStatus = async () => {
+      if (!isMounted) return;
+
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+
         const response = await fetch('/api/health', {
           method: 'HEAD',
-          signal: AbortSignal.timeout(2000) // Timeout after 2 seconds
+          signal: controller.signal
         });
-        if (response.ok) {
-          setErrorMessage(null);
-          setShowFallbackMessage(false);
-        } else {
-          setShowFallbackMessage(true);
+
+        clearTimeout(timeoutId);
+
+        if (isMounted) {
+          if (response.ok) {
+            setErrorMessage(null);
+            setShowFallbackMessage(false);
+          } else {
+            setShowFallbackMessage(true);
+          }
         }
       } catch (error) {
-        console.error('Error checking API status:', error);
-        setShowFallbackMessage(true);
+        if (isMounted) {
+          console.error('Error checking API status:', error);
+          setShowFallbackMessage(true);
+        }
       }
     };
 
@@ -52,10 +68,14 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     // Then check every 30 seconds
     const intervalId = setInterval(checkApiStatus, 30000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, []);
 
-  const handleSendMessage = async () => {
+  // Memoize handleSendMessage to avoid unnecessary recreations
+  const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
 
     try {
@@ -89,7 +109,10 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         );
 
         // Update with the API response
-        onUpdateChat(response);
+        onUpdateChat({
+          ...response,
+          title: response.title ?? '', // Ensure title is always a string
+        });
         setShowFallbackMessage(false);
       } catch (error) {
         console.error('Failed to send message to API:', error);
@@ -116,20 +139,19 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [inputValue, isLoading, chat, onUpdateChat]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
-  };
+  }, [handleSendMessage]);
 
   // Handle running code from code blocks
-  const handleRunCode = async (code: string, language?: string) => {
+  const handleRunCode = useCallback(async (code: string, language?: string) => {
     try {
       // If no language is specified, try to infer it from the first line
-      // (e.g., "#!/bin/bash" or "#!/usr/bin/env python")
       if (!language && code.startsWith('#!')) {
         const firstLine = code.split('\n')[0].toLowerCase();
         if (firstLine.includes('bash') || firstLine.includes('sh')) {
@@ -166,6 +188,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
 
       // Run the code in a terminal via the API
       let command = code;
+      let createFileResponse;
 
       // Wrap the command in the appropriate interpreter if needed
       if (language === 'python') {
@@ -174,7 +197,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         const filename = `temp_script_${timestamp}.py`;
 
         // First create the file
-        const createFileResponse = await fetch('/api/terminal/write-file', {
+        createFileResponse = await fetch('/api/terminal/write-file', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -197,7 +220,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         const filename = `temp_script_${timestamp}.js`;
 
         // First create the file
-        const createFileResponse = await fetch('/api/terminal/write-file', {
+        createFileResponse = await fetch('/api/terminal/write-file', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -268,7 +291,32 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         messages: [...chat.messages, errorOutput],
       });
     }
-  };
+  }, [chat, onUpdateChat]);
+
+  // Use memo for empty chat UI to prevent re-renders
+  const emptyChatUI = useMemo(() => (
+    <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
+      <div className="mb-4 p-4 rounded-full bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 dark:from-dark-800 dark:to-dark-700 shadow-lg animate-fadeIn">
+        <MessageSquare className="w-8 h-8 text-primary-500" />
+      </div>
+      <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-gray-100 animate-fadeIn">Start a conversation</h2>
+      <p className="text-base text-gray-500 dark:text-gray-400 max-w-md animate-fadeIn">
+        Send a message to start chatting with the AI assistant using {chat.model}.
+      </p>
+      {showFallbackMessage && (
+        <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
+          <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
+          <button
+            className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
+            onClick={() => window.location.reload()}
+          >
+            <RefreshCw className="w-3 h-3 mr-1" />
+            <span>Retry connection</span>
+          </button>
+        </div>
+      )}
+    </div>
+  ), [chat.model, showFallbackMessage]);
 
   return (
     <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-dark-900 dark:via-dark-800 dark:to-dark-900 transition-colors duration-300">
@@ -284,50 +332,38 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
-      {chat.messages.length === 0 ? (
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-          <div className="mb-4 p-4 rounded-full bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 dark:from-dark-800 dark:to-dark-700 shadow-lg animate-fadeIn">
-            <MessageSquare className="w-8 h-8 text-primary-500" />
-          </div>
-          <h2 className="text-2xl font-bold mb-2 text-gray-800 dark:text-gray-100 animate-fadeIn">Start a conversation</h2>
-          <p className="text-base text-gray-500 dark:text-gray-400 max-w-md animate-fadeIn">
-            Send a message to start chatting with the AI assistant using {chat.model}.
-          </p>
-          {showFallbackMessage && (
-            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
-              <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
-              <button
-                className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
-                onClick={() => window.location.reload()}
+      {chat.messages.length === 0
+        ? emptyChatUI
+        : (
+          <div className="flex-1 overflow-y-auto px-2 py-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
+            {chat.messages.map((msg) => (
+              <div
+                key={msg.message_id}
+                className={`flex items-end space-x-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
               >
-                <RefreshCw className="w-3 h-3 mr-1" />
-                <span>Retry connection</span>
-              </button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-2 py-4 space-y-2 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-dark-700 scrollbar-track-transparent animate-fadeIn">
-          {chat.messages.map((msg, idx) => (
-            <div key={msg.message_id} className={`flex items-end space-x-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
-              {msg.role === 'assistant' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-white font-bold shadow-md">
-                  <Bot className="w-5 h-5" />
+                {msg.role === 'assistant' && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-white font-bold shadow-md">
+                    <Bot className="w-5 h-5" />
+                  </div>
+                )}
+                <div className={`max-w-lg px-4 py-2 rounded-2xl shadow-md text-base font-medium ${msg.role === 'user'
+                    ? 'bg-gradient-to-br from-green-400 via-blue-200 to-white text-gray-900'
+                    : 'bg-gradient-to-br from-white via-blue-100 to-purple-100 dark:from-dark-800 dark:to-dark-700 text-gray-800 dark:text-gray-100'
+                  } transition-all duration-200`}
+                >
+                  {msg.content}
                 </div>
-              )}
-              <div className={`max-w-lg px-4 py-2 rounded-2xl shadow-md text-base font-medium ${msg.role === 'user' ? 'bg-gradient-to-br from-green-400 via-blue-200 to-white text-gray-900' : 'bg-gradient-to-br from-white via-blue-100 to-purple-100 dark:from-dark-800 dark:to-dark-700 text-gray-800 dark:text-gray-100'} transition-all duration-200`}>
-                {msg.content}
+                {msg.role === 'user' && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-400 flex items-center justify-center text-white font-bold shadow-md">
+                    <span className="font-bold">U</span>
+                  </div>
+                )}
               </div>
-              {msg.role === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-400 flex items-center justify-center text-white font-bold shadow-md">
-                  <span className="font-bold">U</span>
-                </div>
-              )}
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )
+      }
 
       {errorMessage && (
         <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 text-yellow-800 dark:bg-yellow-900/30 dark:border-yellow-800 dark:text-yellow-200 text-sm rounded flex justify-between items-center">
@@ -356,8 +392,8 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
             <button
               onClick={handleSendMessage}
               className={`p-2 rounded-md ${isLoading || !inputValue.trim()
-                ? 'bg-gray-300 dark:bg-dark-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                : 'bg-primary-500 hover:bg-primary-600 text-white'
+                  ? 'bg-gray-300 dark:bg-dark-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-primary-500 hover:bg-primary-600 text-white'
                 }`}
               disabled={isLoading || !inputValue.trim()}
             >

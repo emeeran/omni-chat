@@ -1,9 +1,10 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback, memo, useMemo } from 'react';
 import { UserCircle, Bot, Copy, Terminal, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { Message } from '@/lib/api';
+import { useInView } from 'react-intersection-observer';
 
 type ChatMessagesProps = {
   messages: Message[];
@@ -11,150 +12,234 @@ type ChatMessagesProps = {
   onRunCode?: (code: string, language?: string) => void;
 };
 
-export default function ChatMessages({ messages, isLoading = false, onRunCode }: ChatMessagesProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+// Memoize individual message rendering to prevent unnecessary re-renders
+const MessageContent = memo(({ content }: { content: string }) => {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        code: CodeBlock
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+MessageContent.displayName = 'MessageContent';
 
-  // Reset copy state after 2 seconds
+// Create a separate component for code blocks to improve performance
+const CodeBlock = memo(function CodeBlock({ node, inline, className, children, ...props }: any) {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+  const isExecutable = ['bash', 'sh', 'shell', 'python', 'js', 'javascript', 'typescript', 'ts'].includes(language);
+  const code = String(children).replace(/\n$/, '');
+
+  // Reset copied state after 2 seconds
   useEffect(() => {
-    if (copiedCode) {
+    if (copied) {
       const timer = setTimeout(() => {
-        setCopiedCode(null);
+        setCopied(false);
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [copiedCode]);
+  }, [copied]);
 
-  // Copy code to clipboard
-  const handleCopyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-  };
+  const handleCopyCode = useCallback(() => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+    });
+  }, [code]);
 
-  // Run code in terminal
-  const handleRunCode = (code: string, language?: string) => {
-    if (onRunCode) {
-      onRunCode(code, language);
+  const handleRunCode = useCallback(() => {
+    if (props.onRunCode) {
+      props.onRunCode(code, language);
     }
-  };
+  }, [code, language, props]);
 
-  // Custom code block renderer to add copy/run buttons
-  const CodeBlock = ({ node, inline, className, children, ...props }: any) => {
-    const match = /language-(\w+)/.exec(className || '');
-    const language = match ? match[1] : '';
-    const isExecutable = ['bash', 'sh', 'shell', 'python', 'js', 'javascript', 'typescript', 'ts'].includes(language);
-    const code = String(children).replace(/\n$/, '');
+  if (inline) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
 
-    if (inline) {
-      return (
+  return (
+    <div className="relative group">
+      <pre className={className} {...props}>
         <code className={className} {...props}>
           {children}
         </code>
-      );
-    }
-
-    return (
-      <div className="relative group">
-        <pre className={className} {...props}>
-          <code className={className} {...props}>
-            {children}
-          </code>
-        </pre>
-        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
+      </pre>
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
+        <button
+          onClick={handleCopyCode}
+          className="p-1.5 rounded bg-gray-700 text-gray-100 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          title="Copy code"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+        {isExecutable && props.onRunCode && (
           <button
-            onClick={() => handleCopyCode(code)}
-            className="p-1.5 rounded bg-gray-700 text-gray-100 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
-            title="Copy code"
+            onClick={handleRunCode}
+            className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            title="Run code"
           >
-            {copiedCode === code ? <Check size={14} /> : <Copy size={14} />}
+            <Terminal size={14} />
           </button>
-          {isExecutable && onRunCode && (
-            <button
-              onClick={() => handleRunCode(code, language)}
-              className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-              title="Run code"
-            >
-              <Terminal size={14} />
-            </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// Single message component to optimize rendering
+const ChatMessage = memo(function ChatMessage({
+  message,
+  onRunCode,
+}: {
+  message: Message;
+  onRunCode?: (code: string, language?: string) => void;
+}) {
+  // Use intersection observer to only render complex markdown when message is visible
+  const { ref, inView } = useInView({
+    threshold: 0.1,
+    triggerOnce: true,
+  });
+
+  // For very long messages, use a simpler preview when not in view
+  const isLongMessage = message.content.length > 1000;
+
+  return (
+    <div ref={ref} className="flex items-start">
+      {message.role === 'user' ? (
+        <div className="flex-shrink-0 mr-3">
+          <UserCircle className="w-8 h-8 text-primary-600 dark:text-primary-400" />
+        </div>
+      ) : (
+        <div className="flex-shrink-0 mr-3">
+          <Bot className="w-8 h-8 text-secondary-600 dark:text-secondary-400" />
+        </div>
+      )}
+      <div className="flex-1 overflow-hidden">
+        <div className="text-sm font-medium mb-1">
+          {message.role === 'user' ? 'You' : 'AI Assistant'}
+        </div>
+        <div className={`message-content prose dark:prose-invert max-w-none py-2 px-3 rounded-lg ${message.role === 'user'
+            ? 'bg-primary-50 dark:bg-primary-900/30 text-gray-800 dark:text-gray-200'
+            : 'bg-white dark:bg-dark-800 border border-gray-200 dark:border-dark-700 text-gray-800 dark:text-gray-200'
+          }`}>
+          {(!isLongMessage || inView) ? (
+            <MessageContent content={message.content} />
+          ) : (
+            // Simple preview for long messages that are not in view
+            <div className="opacity-70">
+              {message.content.slice(0, 100)}...
+              <span className="text-blue-500 italic">(scrolling to view)</span>
+            </div>
           )}
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+});
 
-  // Skip system messages
-  const displayMessages = messages.filter(msg => msg.role !== 'system');
+// Loading indicator component
+const LoadingIndicator = memo(function LoadingIndicator() {
+  return (
+    <div className="flex items-start">
+      <div className="flex-shrink-0 mr-3">
+        <Bot className="w-8 h-8 text-secondary-600 dark:text-secondary-400" />
+      </div>
+      <div className="flex-1">
+        <div className="text-sm font-medium mb-1">AI Assistant</div>
+        <div className="bg-white dark:bg-dark-800 rounded-lg border border-gray-200 dark:border-dark-700 py-3 px-4">
+          <div className="flex space-x-2">
+            <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce"></div>
+            <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce delay-150"></div>
+            <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce delay-300"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Welcome screen component
+const WelcomeScreen = memo(function WelcomeScreen() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-4">
+      <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Welcome to OmniChat</h2>
+      <p className="text-gray-500 max-w-md">
+        Start a conversation with AI using multiple providers and models. Customize your experience in the settings.
+      </p>
+    </div>
+  );
+});
+
+// Windowing for large message lists - implement virtualized rendering for chats with many messages
+const ChatMessages = memo(function ChatMessages({ messages, isLoading = false, onRunCode }: ChatMessagesProps) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Skip system messages and implement windowing
+  const displayMessages = useMemo(
+    () => messages.filter(msg => msg.role !== 'system'),
+    [messages]
+  );
+
+  // Only render a subset of messages if there are more than 50
+  const MAX_RENDERED_MESSAGES = 50;
+  const hasExcessMessages = displayMessages.length > MAX_RENDERED_MESSAGES;
+
+  // Show most recent messages, with indicator if messages are hidden
+  const visibleMessages = useMemo(() => {
+    if (!hasExcessMessages) return displayMessages;
+    return displayMessages.slice(-MAX_RENDERED_MESSAGES);
+  }, [displayMessages, hasExcessMessages]);
+
+  // Scroll to bottom when messages change or loading state changes
+  useEffect(() => {
+    // Use requestAnimationFrame for smoother scrolling and to ensure DOM is ready
+    if (messagesEndRef.current) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+  }, [messages, isLoading]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+    <div ref={containerRef} className="flex-1 overflow-y-auto p-4 space-y-6">
       {displayMessages.length === 0 ? (
-        <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Welcome to OmniChat</h2>
-          <p className="text-gray-500 max-w-md">
-            Start a conversation with AI using multiple providers and models. Customize your experience in the settings.
-          </p>
-        </div>
+        <WelcomeScreen />
       ) : (
-        displayMessages.map((message) => (
-          <div key={message.message_id} className="flex items-start">
-            {message.role === 'user' ? (
-              <div className="flex-shrink-0 mr-3">
-                <UserCircle className="w-8 h-8 text-primary-600 dark:text-primary-400" />
-              </div>
-            ) : (
-              <div className="flex-shrink-0 mr-3">
-                <Bot className="w-8 h-8 text-secondary-600 dark:text-secondary-400" />
-              </div>
-            )}
-            <div className="flex-1 overflow-hidden">
-              <div className="text-sm font-medium mb-1">
-                {message.role === 'user' ? 'You' : 'AI Assistant'}
-              </div>
-              <div className={`message-content prose dark:prose-invert max-w-none py-2 px-3 rounded-lg ${message.role === 'user'
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-gray-800 dark:text-gray-200'
-                  : 'bg-white dark:bg-dark-800 border border-gray-200 dark:border-dark-700 text-gray-800 dark:text-gray-200'
-                }`}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                  components={{
-                    code: CodeBlock
-                  }}
-                >
-                  {message.content}
-                </ReactMarkdown>
-              </div>
+        <>
+          {/* Show message indicating hidden history */}
+          {hasExcessMessages && (
+            <div className="text-center py-2 text-sm text-gray-500 bg-gray-100 dark:bg-dark-700 dark:text-gray-400 rounded-md">
+              {displayMessages.length - MAX_RENDERED_MESSAGES} earlier messages not shown
             </div>
-          </div>
-        ))
+          )}
+
+          {/* Visible messages */}
+          {visibleMessages.map((message) => (
+            <ChatMessage
+              key={message.message_id || `${message.role}-${message.timestamp || Date.now()}`}
+              message={message}
+              onRunCode={onRunCode}
+            />
+          ))}
+        </>
       )}
 
-      {isLoading && (
-        <div className="flex items-start">
-          <div className="flex-shrink-0 mr-3">
-            <Bot className="w-8 h-8 text-secondary-600 dark:text-secondary-400" />
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-medium mb-1">AI Assistant</div>
-            <div className="bg-white dark:bg-dark-800 rounded-lg border border-gray-200 dark:border-dark-700 py-3 px-4">
-              <div className="flex space-x-2">
-                <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce"></div>
-                <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce delay-150"></div>
-                <div className="h-2 w-2 bg-secondary-500 rounded-full animate-bounce delay-300"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {isLoading && <LoadingIndicator />}
 
       <div ref={messagesEndRef} />
     </div>
   );
-}
+});
+
+export default ChatMessages;
