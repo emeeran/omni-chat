@@ -719,6 +719,117 @@ const SettingsTab = memo(({
         </div>
       </div>
 
+      {/* Plugin Support */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Plugins</label>
+          <div className="relative inline-block w-10 align-middle select-none">
+            <input
+              type="checkbox"
+              name="toggle"
+              id="toggle"
+              className="sr-only"
+              checked={pluginsEnabled}
+              onChange={() => setPluginsEnabled(!pluginsEnabled)}
+            />
+            <label
+              htmlFor="toggle"
+              className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
+              onClick={() => setPluginsEnabled(!pluginsEnabled)}
+            >
+              <span
+                className={`block h-6 w-6 rounded-full bg-white shadow transform ${pluginsEnabled ? 'translate-x-4' : 'translate-x-0'} transition-transform duration-200 ease-in-out dark:bg-blue-500`}
+              ></span>
+            </label>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+            <input 
+              type="checkbox" 
+              className="rounded text-blue-500" 
+              checked={webSearchEnabled}
+              onChange={() => setWebSearchEnabled(!webSearchEnabled)}
+            />
+            <span className="text-xs">Web Search</span>
+          </div>
+          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+            <input 
+              type="checkbox" 
+              className="rounded text-blue-500" 
+              checked={codeInterpreterEnabled}
+              onChange={() => setCodeInterpreterEnabled(!codeInterpreterEnabled)}
+            />
+            <span className="text-xs">Code Interpreter</span>
+          </div>
+          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+            <input 
+              type="checkbox" 
+              className="rounded text-blue-500" 
+              checked={imageGeneratorEnabled}
+              onChange={() => setImageGeneratorEnabled(!imageGeneratorEnabled)}
+            />
+            <span className="text-xs">Image Generator</span>
+          </div>
+          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+            <input 
+              type="checkbox" 
+              className="rounded text-blue-500" 
+              checked={fileAnalysisEnabled}
+              onChange={() => setFileAnalysisEnabled(!fileAnalysisEnabled)}
+            />
+            <span className="text-xs">File Analysis</span>
+          </div>
+        </div>
+      </div>
+
+      {/* API Keys Management */}
+      <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
+        <div className="space-y-2">
+          {Object.entries(apiKeys).map(([provider, key]) => (
+            <div key={provider} className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
+              <div className="flex items-center">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                <span className="text-xs">{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  className="text-xs text-blue-600 dark:text-blue-400"
+                  onClick={() => {
+                    setApiKeyProvider(provider);
+                    setApiKey(key === '***************' ? '' : key);
+                    setShowApiKeyModal(true);
+                  }}
+                >
+                  Edit
+                </button>
+                <button 
+                  className="text-xs text-red-600 dark:text-red-400"
+                  onClick={() => {
+                    const newApiKeys = {...apiKeys};
+                    delete newApiKeys[provider];
+                    setApiKeys(newApiKeys);
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          <button 
+            className="w-full mt-2 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+            onClick={() => {
+              setApiKeyProvider('');
+              setApiKey('');
+              setShowApiKeyModal(true);
+            }}
+          >
+            + Add API key
+          </button>
+        </div>
+      </div>
+
       {/* Save as Defaults Button */}
       <div className="mb-4 pt-2">
         <button
@@ -968,6 +1079,26 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chats' | 'settings' | 'docs'>('chats');
+  
+  // Add state for advanced settings
+  const [contextWindow, setContextWindow] = useState(5);
+  const [pluginsEnabled, setPluginsEnabled] = useState(true);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+  const [codeInterpreterEnabled, setCodeInterpreterEnabled] = useState(true);
+  const [imageGeneratorEnabled, setImageGeneratorEnabled] = useState(true);
+  const [fileAnalysisEnabled, setFileAnalysisEnabled] = useState(true);
+  
+  // Add state for API key management
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyProvider, setApiKeyProvider] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeys, setApiKeys] = useLocalStorage<{[key: string]: string}>('apiKeys', {
+    'openai': '***************',
+    'anthropic': '***************',
+    'mistral': '***************',
+    'google': '***************',
+    'cohere': '***************'
+  });
   
   // Use the local storage hook for all settings
   const [settings, setSettings] = useLocalStorage<DefaultSettings>('omniChatDefaults', {
@@ -1330,14 +1461,15 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                     <div className="flex justify-between items-center mb-1.5">
                       <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Context Window</label>
                       <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                        5 messages
+                        {contextWindow} messages
                       </span>
                     </div>
                     <input
                       type="range"
                       min="1"
                       max="20"
-                      value="5"
+                      value={contextWindow}
+                      onChange={(e) => setContextWindow(parseInt(e.target.value))}
                       className="w-full h-2 bg-gradient-to-r from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-600 rounded-lg appearance-none cursor-pointer"
                     />
                     <div className="flex justify-between mt-1.5">
@@ -1355,33 +1487,55 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                           name="toggle"
                           id="toggle"
                           className="sr-only"
-                          defaultChecked
+                          checked={pluginsEnabled}
+                          onChange={() => setPluginsEnabled(!pluginsEnabled)}
                         />
                         <label
                           htmlFor="toggle"
                           className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
+                          onClick={() => setPluginsEnabled(!pluginsEnabled)}
                         >
                           <span
-                            className="block h-6 w-6 rounded-full bg-white shadow transform translate-x-0 transition-transform duration-200 ease-in-out dark:bg-blue-500"
+                            className={`block h-6 w-6 rounded-full bg-white shadow transform ${pluginsEnabled ? 'translate-x-4' : 'translate-x-0'} transition-transform duration-200 ease-in-out dark:bg-blue-500`}
                           ></span>
                         </label>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input type="checkbox" className="rounded text-blue-500" defaultChecked />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={webSearchEnabled}
+                          onChange={() => setWebSearchEnabled(!webSearchEnabled)}
+                        />
                         <span className="text-xs">Web Search</span>
                       </div>
                       <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input type="checkbox" className="rounded text-blue-500" defaultChecked />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={codeInterpreterEnabled}
+                          onChange={() => setCodeInterpreterEnabled(!codeInterpreterEnabled)}
+                        />
                         <span className="text-xs">Code Interpreter</span>
                       </div>
                       <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input type="checkbox" className="rounded text-blue-500" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={imageGeneratorEnabled}
+                          onChange={() => setImageGeneratorEnabled(!imageGeneratorEnabled)}
+                        />
                         <span className="text-xs">Image Generator</span>
                       </div>
                       <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input type="checkbox" className="rounded text-blue-500" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={fileAnalysisEnabled}
+                          onChange={() => setFileAnalysisEnabled(!fileAnalysisEnabled)}
+                        />
                         <span className="text-xs">File Analysis</span>
                       </div>
                     </div>
@@ -1390,22 +1544,45 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                   <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
-                        <div className="flex items-center">
-                          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                          <span className="text-xs">OpenAI</span>
+                      {Object.entries(apiKeys).map(([provider, key]) => (
+                        <div key={provider} className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
+                          <div className="flex items-center">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            <span className="text-xs">{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button 
+                              className="text-xs text-blue-600 dark:text-blue-400"
+                              onClick={() => {
+                                setApiKeyProvider(provider);
+                                setApiKey(key === '***************' ? '' : key);
+                                setShowApiKeyModal(true);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button 
+                              className="text-xs text-red-600 dark:text-red-400"
+                              onClick={() => {
+                                const newApiKeys = {...apiKeys};
+                                delete newApiKeys[provider];
+                                setApiKeys(newApiKeys);
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
-                        <button className="text-xs text-blue-600 dark:text-blue-400">Edit</button>
-                      </div>
-                      <div className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
-                        <div className="flex items-center">
-                          <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
-                          <span className="text-xs">Anthropic</span>
-                        </div>
-                        <button className="text-xs text-blue-600 dark:text-blue-400">Add</button>
-                      </div>
-                      <button className="w-full mt-2 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400">
-                        + Add more providers
+                      ))}
+                      <button 
+                        className="w-full mt-2 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                        onClick={() => {
+                          setApiKeyProvider('');
+                          setApiKey('');
+                          setShowApiKeyModal(true);
+                        }}
+                      >
+                        + Add API key
                       </button>
                     </div>
                   </div>
@@ -1590,6 +1767,106 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 backdrop-blur-sm transition-all duration-300 flex items-center justify-center" onClick={() => setShowApiKeyModal(false)}>
+          <div
+            className="bg-white/90 dark:bg-gray-900/90 shadow-2xl rounded-2xl p-4 w-96 backdrop-blur-xl border border-gray-200 dark:border-gray-700 transition-all duration-300 transform animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                {apiKeyProvider ? `Edit ${apiKeyProvider} API Key` : 'Add New API Key'}
+              </h2>
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              {/* Provider selection */}
+              {!apiKeyProvider && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+                    Provider
+                  </label>
+                  <select
+                    value={apiKeyProvider}
+                    onChange={(e) => setApiKeyProvider(e.target.value)}
+                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm"
+                  >
+                    <option value="" disabled>Select a provider</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="mistral">Mistral AI</option>
+                    <option value="google">Google AI</option>
+                    <option value="cohere">Cohere</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+              )}
+              {/* Custom provider name */}
+              {apiKeyProvider === 'custom' && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+                    Custom Provider Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter provider name"
+                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm"
+                    onChange={(e) => setApiKeyProvider(e.target.value)}
+                  />
+                </div>
+              )}
+              {/* API Key input */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  placeholder="Enter API key"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="w-full p-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm"
+                />
+              </div>
+              {/* Action buttons */}
+              <div className="flex justify-end space-x-2 mt-6">
+                <button
+                  onClick={() => setShowApiKeyModal(false)}
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (apiKeyProvider && apiKey) {
+                      setApiKeys({
+                        ...apiKeys,
+                        [apiKeyProvider]: apiKey
+                      });
+                      setShowApiKeyModal(false);
+                    }
+                  }}
+                  disabled={!apiKeyProvider || !apiKey}
+                  className={`px-4 py-2 rounded-lg transition-colors ${
+                    apiKeyProvider && apiKey 
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white'
+                      : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

@@ -403,9 +403,9 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
                   <div className="flex justify-center mt-2">
                     <span className="block text-xs text-gray-400 font-mono select-none">
                       {assistantMsg
-                        ? `-------------------time-stamp ${new Date(assistantMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                        ? `------------------- Generated with ${chat.provider} | ${chat.model} ${new Date(assistantMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
                         : userMsg
-                          ? `-------------------time-stamp ${new Date(userMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                          ? `------------------- Generated with ${chat.provider} | ${chat.model} ${new Date(userMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
                           : ''}
                     </span>
                   </div>
