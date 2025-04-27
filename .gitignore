@@ -78,3 +78,6 @@ htmlcov/
 
 # Frontend
 frontend/.next/
+
+# Chat logs
+backend/data/chats/*.json
