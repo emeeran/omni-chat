@@ -28,6 +28,7 @@ ENV/
 .venv
 env.bak/
 venv.bak/
+.ven/
 
 # IDE
 .idea/
@@ -40,6 +41,13 @@ venv.bak/
 *.log
 logs/
 log/
+tmp/
+temp/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.tox/
 
 # Local development
 .env.local
@@ -51,30 +59,25 @@ log/
 node_modules/
 package-lock.json
 yarn.lock
+npm-debug.log
+yarn-debug.log
+yarn-error.log
 
 # Distribution
 dist/
 build/
 *.pyc
-
-# Testing
-coverage/
-.coverage
-htmlcov/
-.pytest_cache/
-.tox/
+out/
+*.pem
 
 # Database
 *.sqlite3
+*.sqlite
 *.db
 
-# Misc
-.DS_Store
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Media and uploads
+uploads/
+media/
 
 # Frontend
 frontend/.next/

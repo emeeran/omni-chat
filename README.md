@@ -1,6 +1,6 @@
 # OmniChat
 
-A versatile chat interface for interacting with multiple AI providers through a unified, feature-rich experience.
+An Enterprise-Grade Multimodal Chat Application with support for multiple AI providers through a unified, feature-rich experience.
 
 ![OmniChat](https://via.placeholder.com/800x400?text=OmniChat+Interface)
 
@@ -72,7 +72,7 @@ OmniChat provides a seamless interface to interact with various AI models from d
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/omni-chat.git
+git clone https://github.com/emeeran/omni-chat.git
 
 # Navigate to the project directory
 cd omni-chat
@@ -148,4 +148,4 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
 
 - Built with [Next.js](https://nextjs.org/)
 - Icons from [Lucide](https://lucide.dev/)
-- UI components styled with [TailwindCSS](https://tailwindcss.com/) 
+- UI components styled with [TailwindCSS](https://tailwindcss.com/)
