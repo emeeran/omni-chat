@@ -1,0 +1,1 @@
+{"doc_id": "6fd8395b614c4e0af3e957c7ddc4b97a", "filename": "test_doc.txt", "chunk_size": 1000, "chunk_overlap": 200, "smart_chunking": true, "total_chunks": 1, "total_chars": 46, "created_at": 1745679762.5782447, "processing_time": 0.0006775856018066406, "file_type": "txt"}

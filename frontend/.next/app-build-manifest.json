@@ -1,9 +1,14 @@
 {
   "pages": {
-    "/page": [
+    "/chat/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
+      "static/chunks/app/chat/layout.js"
+    ],
+    "/chat/[[...chatId]]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/chat/[[...chatId]]/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
@@ -11,10 +16,10 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/chat/[[...chatId]]/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/chat/[[...chatId]]/page.js"
+      "static/chunks/app/page.js"
     ]
   }
 }

@@ -125,21 +125,8 @@ class OpenAIProvider(BaseProvider):
 
             response = self.client.chat.completions.create(**params)
 
-            # Convert the response object to a dictionary
-            return {
-                "id": response.id,
-                "created": response.created,
-                "model": response.model,
-                "choices": [
-                    {
-                        "index": choice.index,
-                        "message": {
-                            "role": choice.message.role,
-                            "content": choice.message.content
-                        }
-                    } for choice in response.choices
-                ]
-            }
+            # Use the standardized format_response method
+            return self.format_response(response)
 
         except Exception as e:
             logger.error(f"Error in OpenAI chat completion: {e}")

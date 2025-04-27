@@ -1,9 +1,25 @@
 import './globals.css';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
+import { ApplicationThemeProvider } from '@/components/ApplicationThemeProvider';
+
+// Use optimized font loading
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
 
 export const metadata: Metadata = {
   title: 'OmniChat - Multi-Provider AI Chat Platform',
   description: 'An enterprise-ready chat platform with support for multiple AI providers',
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#e0f2fe' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
 };
 
 export default function RootLayout({
@@ -12,10 +28,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-gray-50 dark:bg-dark-800 min-h-screen">
-        {children}
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 min-h-screen transition-colors duration-300">
+        <ApplicationThemeProvider>
+          {children}
+        </ApplicationThemeProvider>
       </body>
     </html>
   );
-} 
+}

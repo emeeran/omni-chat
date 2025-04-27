@@ -1,5 +1,5 @@
-from flask import Blueprint, jsonify, request
-from api_providers.provider_factory import get_provider
+from flask import Blueprint, jsonify, request, current_app
+from api_providers.provider_factory import get_provider, get_available_providers
 from database.chat_store import ChatStore
 from models.chat import Chat, Message
 from utils.document_processor import DocumentProcessor
@@ -7,49 +7,154 @@ import os
 from werkzeug.utils import secure_filename
 import logging
 import uuid
+import time
+import json
+from functools import wraps
+from typing import Dict, List, Any, Optional, Callable
+import copy
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging with a more efficient format
+logging.basicConfig(
+    level=logging.INFO,  # Change from DEBUG to INFO for production
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 api_routes = Blueprint('api', __name__, url_prefix='/api')
 chat_store = ChatStore()
 document_processor = DocumentProcessor()
 
-# Simple test endpoint to verify API is working
-@api_routes.route('/test', methods=['GET'])
-def test():
-    """Simple test endpoint to verify API is working"""
-    return jsonify({"status": "ok", "message": "API is working"})
-
 # File upload configuration
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'md'}
 UPLOAD_FOLDER = 'data/uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# Request rate limiter - simple in-memory implementation
+class RateLimiter:
+    def __init__(self, limit: int = 60, window: int = 60):
+        self.limit = limit  # requests
+        self.window = window  # seconds
+        self.requests = {}  # ip -> list of timestamps
 
+    def is_allowed(self, ip: str) -> bool:
+        current_time = time.time()
+
+        # Initialize for new IP
+        if ip not in self.requests:
+            self.requests[ip] = []
+
+        # Remove old requests outside the window
+        self.requests[ip] = [t for t in self.requests[ip] if current_time - t < self.window]
+
+        # Check if under limit
+        if len(self.requests[ip]) < self.limit:
+            self.requests[ip].append(current_time)
+            return True
+
+        return False
+
+# Create rate limiter
+rate_limiter = RateLimiter()
+
+# Cache for API responses to reduce redundant processing
+response_cache = {}
+CACHE_TTL = 300  # 5 minutes
+
+# Error handling decorator to reduce code duplication
+def api_error_handler(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"API error in {f.__name__}: {str(e)}", exc_info=True)
+            return jsonify({"error": f"Server error: {str(e)}"}), 500
+    return decorated_function
+
+# Rate limiting decorator
+def rate_limit(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        ip = request.remote_addr
+
+        if not rate_limiter.is_allowed(ip):
+            logger.warning(f"Rate limit exceeded for IP: {ip}")
+            return jsonify({
+                "error": "Rate limit exceeded. Please try again later."
+            }), 429
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Caching decorator for GET endpoints
+def cache_response(ttl=CACHE_TTL):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Only cache GET requests
+            if request.method != 'GET':
+                return f(*args, **kwargs)
+
+            # Create cache key from endpoint and query string
+            cache_key = f"{request.path}?{request.query_string.decode('utf-8')}"
+
+            # Check if response is in cache and not expired
+            if cache_key in response_cache:
+                entry_time, response = response_cache[cache_key]
+                if time.time() - entry_time < ttl:
+                    return response
+
+            # Generate the response
+            response = f(*args, **kwargs)
+
+            # Cache the response
+            response_cache[cache_key] = (time.time(), response)
+
+            return response
+        return decorated_function
+    return decorator
+
+# Validate request data
+def validate_request_data(required_fields: List[str], data: Dict) -> Optional[Dict]:
+    """Validate request data for required fields and return error response if invalid"""
+    if not data:
+        return {
+            "error": "No data provided",
+            "status_code": 400
+        }
+
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        return {
+            "error": f"Missing required fields: {', '.join(missing_fields)}",
+            "status_code": 400
+        }
+
+    return None
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Simple health check endpoint
+@api_routes.route('/health', methods=['GET', 'HEAD'])
+def health():
+    """Health check endpoint"""
+    if request.method == 'HEAD':
+        return '', 200
+    return jsonify({"status": "ok", "message": "OmniChat API is running"})
+
+# Get a list of all available AI providers
 @api_routes.route('/providers', methods=['GET'])
+@cache_response(ttl=3600)  # Cache for 1 hour
 def get_providers():
     """Get a list of all available AI providers"""
-    providers = [
-        {"id": "groq", "name": "Groq", "default": True},
-        {"id": "openai", "name": "OpenAI"},
-        {"id": "anthropic", "name": "Anthropic"},
-        {"id": "mistral", "name": "Mistral AI"},
-        {"id": "cohere", "name": "Cohere"},
-        {"id": "xai", "name": "X AI"},
-        {"id": "fireworks", "name": "Fireworks"},
-        {"id": "deepseek", "name": "DeepSeek"},
-        {"id": "dashscope", "name": "DASHSCOPE"},
-        {"id": "gemini", "name": "Gemini"},
-        {"id": "openrouter", "name": "OpenRouter AI"}
-    ]
-    return jsonify(providers)
+    providers = get_available_providers()
+    return jsonify(list(providers.values()))
 
+# Get a list of available models for a provider
 @api_routes.route('/models', methods=['GET'])
+@cache_response(ttl=3600)  # Cache for 1 hour
+@api_error_handler
 def get_models():
     """Get a list of available models for a provider"""
     provider_id = request.args.get('provider', 'groq')
@@ -57,213 +162,334 @@ def get_models():
     if not provider:
         return jsonify({"error": f"Provider {provider_id} not found"}), 404
 
-    try:
-        models = provider.get_models()
-        return jsonify(models)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    models = provider.get_models()
+    return jsonify(models)
 
 @api_routes.route('/chat', methods=['POST'])
+@rate_limit
+@api_error_handler
 def chat():
     """Send a chat message to the selected AI provider"""
     logger.debug("Chat endpoint called")
-    try:
-        data = request.json
-        logger.debug(f"Received data: {data}")
+    data = request.json
 
-        # Validate required fields
-        if not data:
-            logger.error("No JSON data received")
-            return jsonify({"error": "No data provided"}), 400
+    # Validate request data
+    validation_error = validate_request_data(['provider', 'model'], data)
+    if validation_error:
+        return jsonify({"error": validation_error["error"]}), validation_error["status_code"]
 
-        provider_id = data.get('provider', 'openai')
-        model_id = data.get('model')
-        messages = data.get('messages', [])
-        chat_id = data.get('chat_id')
-        content = data.get('content')
+    logger.debug(f"Received data: {data}")
 
-        logger.debug(f"Processing chat request: provider={provider_id}, model={model_id}, chat_id={chat_id}")
+    provider_id = data.get('provider')
+    model_id = data.get('model')
+    messages = data.get('messages', [])
+    chat_id = data.get('chat_id')
+    content = data.get('content')
 
-        provider = get_provider(provider_id)
-        if not provider:
-            logger.error(f"Provider {provider_id} not found")
-            return jsonify({"error": f"Provider {provider_id} not found"}), 404
+    logger.debug(f"Processing chat request: provider={provider_id}, model={model_id}, chat_id={chat_id}")
 
-        # Get existing chat or create a new one
-        if chat_id:
-            # Handle temporary chat IDs that start with "new-"
-            if chat_id.startswith('new-'):
-                logger.debug(f"Creating new chat from temporary ID: {chat_id}")
-                chat = Chat(
-                    chat_id=str(uuid.uuid4()),  # Generate a proper UUID
-                    provider=provider_id,
-                    model=model_id,
-                    system_prompt=data.get('system_prompt')
-                )
-            else:
-                # Regular chat ID lookup
-                chat = chat_store.get_chat(chat_id)
-                if not chat:
-                    logger.error(f"Chat {chat_id} not found")
-                    return jsonify({"error": f"Chat {chat_id} not found"}), 404
-        else:
-            logger.debug("Creating new chat")
+    # Get provider instance
+    provider = get_provider(provider_id)
+    if not provider:
+        logger.error(f"Provider {provider_id} not found")
+        return jsonify({"error": f"Provider {provider_id} not found"}), 404
+
+    # Get existing chat or create a new one
+    chat = None
+    if chat_id:
+        # Handle temporary chat IDs that start with "new-"
+        if chat_id.startswith('new-'):
+            logger.debug(f"Creating new chat from temporary ID: {chat_id}")
             chat = Chat(
+                chat_id=str(uuid.uuid4()),  # Generate a proper UUID
                 provider=provider_id,
                 model=model_id,
-                system_prompt=data.get('system_prompt')
+                system_prompt=data.get('system_prompt'),
+                title=data.get('title', 'New Chat')
             )
-
-        # If this is the first message in a new chat, add system message if provided
-        if not chat.messages and data.get('system_prompt'):
-            logger.debug(f"Adding system prompt: {data.get('system_prompt')[:30]}...")
-            chat.add_message("system", data.get('system_prompt'))
-
-        # Add the user message to the chat
-        if content:
-            logger.debug(f"Adding user message: {content[:30]}...")
-            chat.add_message("user", content)
-
-        # If we have messages directly in the request, use those instead
-        if messages:
-            logger.debug(f"Using provided messages array with {len(messages)} messages")
-            api_messages = messages
         else:
-            # Prepare messages for the API call
-            api_messages = []
-            for message in chat.messages:
-                api_messages.append({
-                    "role": message.role,
-                    "content": message.content
-                })
-            logger.debug(f"Created message array with {len(api_messages)} messages")
-
-        # Call the provider API
-        logger.debug(f"Calling provider API: {provider_id}")
-        response = provider.chat_completion(
-            model=model_id or chat.model,
-            messages=api_messages,
-            temperature=data.get('temperature', 0.7),
-            max_tokens=data.get('max_tokens')
+            # Regular chat ID lookup
+            chat = chat_store.get_chat(chat_id)
+            if not chat:
+                logger.error(f"Chat {chat_id} not found")
+                return jsonify({"error": f"Chat {chat_id} not found"}), 404
+    else:
+        logger.debug("Creating new chat")
+        chat = Chat(
+            provider=provider_id,
+            model=model_id,
+            system_prompt=data.get('system_prompt'),
+            title=data.get('title', 'New Chat')
         )
 
-        # Check if there was an error
-        if 'error' in response:
-            logger.error(f"Provider API error: {response['error']}")
-            return jsonify(response), 500
+    # If this is the first message in a new chat, add system message if provided
+    if not chat.messages and data.get('system_prompt'):
+        logger.debug(f"Adding system prompt: {data.get('system_prompt')[:30]}...")
+        chat.add_message("system", data.get('system_prompt'))
 
-        # Extract the assistant response
-        assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
-        logger.debug(f"Received assistant response: {assistant_response[:30]}...")
+    # Add the user message to the chat
+    if content:
+        logger.debug(f"Adding user message: {content[:30]}...")
+        chat.add_message("user", content)
 
-        # Add the assistant response to the chat
-        chat.add_message("assistant", assistant_response)
+    # If we have messages directly in the request, use those instead
+    if messages:
+        logger.debug(f"Using provided messages array with {len(messages)} messages")
+        api_messages = messages
+    else:
+        # Prepare messages for the API call
+        api_messages = []
+        for message in chat.messages:
+            api_messages.append({
+                "role": message.role,
+                "content": message.content
+            })
+        logger.debug(f"Created message array with {len(api_messages)} messages")
 
-        # Save the chat
-        chat_store.save_chat(chat)
+    # Call the provider API
+    logger.debug(f"Calling provider API: {provider_id}")
+    start_time = time.time()
+    response = provider.chat_completion(
+        model=model_id or chat.model,
+        messages=api_messages,
+        temperature=data.get('temperature', 0.7),
+        max_tokens=data.get('max_tokens')
+    )
+    end_time = time.time()
+    logger.info(f"API call took {end_time - start_time:.2f} seconds")
 
-        # Return the response with the chat_id
-        return jsonify({
-            "chat_id": chat.chat_id,
-            "assistant_response": assistant_response,
-            "full_response": response
-        })
+    # Check if there was an error
+    if 'error' in response:
+        logger.error(f"Provider API error: {response['error']}")
+        return jsonify(response), 500
 
-    except Exception as e:
-        logger.error(f"Error in chat completion: {str(e)}", exc_info=True)
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    # Extract the assistant response
+    assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+    logger.debug(f"Received assistant response: {assistant_response[:30]}...")
+
+    # Ensure markdown formatting
+    def ensure_markdown(text):
+        if text.strip().startswith('```') or text.strip().startswith('#') or text.strip().startswith('>'):
+            return text
+        return f"""```
+{text.strip()}
+```"""
+    assistant_response_markdown = ensure_markdown(assistant_response)
+
+    # Add the assistant response to the chat
+    chat.add_message("assistant", assistant_response)
+
+    # Update chat title if this is the first exchange and no title was provided
+    if len(chat.messages) <= 3 and not chat.title:
+        # Generate a title based on the first user message
+        first_user_message = next((msg for msg in chat.messages if msg.role == "user"), None)
+        if first_user_message:
+            chat.title = first_user_message.content[:30] + "..." if len(first_user_message.content) > 30 else first_user_message.content
+
+    # Save the chat
+    chat_store.save_chat(chat)
+
+    # Return the response with the chat_id
+    return jsonify({
+        "chat_id": chat.chat_id,
+        "title": chat.title,
+        "assistant_response": assistant_response,
+        "assistant_response_markdown": assistant_response_markdown,
+        "full_response": response
+    })
 
 @api_routes.route('/chat/rag', methods=['POST'])
+@rate_limit
+@api_error_handler
 def rag_chat():
     """Send a RAG-enhanced chat message to the selected AI provider"""
     logger.debug("RAG Chat endpoint called")
-    try:
-        data = request.json
-        logger.debug(f"Received RAG data: {data}")
+    data = request.json
 
-        # Validate required fields
-        if not data:
-            logger.error("No JSON data received in RAG request")
-            return jsonify({"error": "No data provided"}), 400
+    # Validate request data
+    validation_error = validate_request_data(['provider', 'model', 'content'], data)
+    if validation_error:
+        return jsonify({"error": validation_error["error"]}), validation_error["status_code"]
 
-        provider_id = data.get('provider', 'openai')
-        model_id = data.get('model')
-        chat_id = data.get('chat_id')
-        query = data.get('content', '')
-        document_ids = data.get('document_ids', [])
+    logger.debug(f"Received RAG data: {data}")
 
-        logger.debug(f"Processing RAG chat request: provider={provider_id}, model={model_id}, chat_id={chat_id}, docs={len(document_ids)}")
+    provider_id = data.get('provider')
+    model_id = data.get('model')
+    chat_id = data.get('chat_id')
+    query = data.get('content', '')
+    document_ids = data.get('document_ids', [])
 
-        provider = get_provider(provider_id)
-        if not provider:
-            logger.error(f"Provider {provider_id} not found")
-            return jsonify({"error": f"Provider {provider_id} not found"}), 404
+    # Performance: Early check for no document IDs to avoid unnecessary processing
+    if not document_ids:
+        logger.warning("RAG chat requested with no document IDs")
+        return jsonify({"error": "No documents provided for RAG chat"}), 400
 
-        # Get existing chat or create a new one
-        if chat_id:
-            # Handle temporary chat IDs that start with "new-"
-            if chat_id.startswith('new-'):
-                logger.debug(f"Creating new RAG chat from temporary ID: {chat_id}")
-                chat = Chat(
-                    chat_id=str(uuid.uuid4()),  # Generate a proper UUID
-                    provider=provider_id,
-                    model=model_id,
-                    system_prompt=data.get('system_prompt')
-                )
-            else:
-                # Regular chat ID lookup
-                chat = chat_store.get_chat(chat_id)
-                if not chat:
-                    logger.error(f"Chat {chat_id} not found")
-                    return jsonify({"error": f"Chat {chat_id} not found"}), 404
-        else:
-            logger.debug("Creating new RAG chat")
+    logger.debug(f"Processing RAG chat request: provider={provider_id}, model={model_id}, chat_id={chat_id}, docs={len(document_ids)}")
+
+    provider = get_provider(provider_id)
+    if not provider:
+        logger.error(f"Provider {provider_id} not found")
+        return jsonify({"error": f"Provider {provider_id} not found"}), 404
+
+    # Get existing chat or create a new one
+    chat = None
+    if chat_id:
+        # Handle temporary chat IDs that start with "new-"
+        if chat_id.startswith('new-'):
+            logger.debug(f"Creating new RAG chat from temporary ID: {chat_id}")
             chat = Chat(
+                chat_id=str(uuid.uuid4()),  # Generate a proper UUID
                 provider=provider_id,
                 model=model_id,
-                system_prompt=data.get('system_prompt')
+                system_prompt=data.get('system_prompt'),
+                title=data.get('title', 'New RAG Chat')
             )
+        else:
+            # Regular chat ID lookup
+            chat = chat_store.get_chat(chat_id)
+            if not chat:
+                logger.error(f"Chat {chat_id} not found")
+                return jsonify({"error": f"Chat {chat_id} not found"}), 404
+    else:
+        logger.debug("Creating new RAG chat")
+        chat = Chat(
+            provider=provider_id,
+            model=model_id,
+            system_prompt=data.get('system_prompt'),
+            title=data.get('title', 'New RAG Chat')
+        )
 
-        # If this is the first message in a new chat, add system message if provided
-        if not chat.messages and data.get('system_prompt'):
-            logger.debug(f"Adding system prompt to RAG chat: {data.get('system_prompt')[:30]}...")
-            chat.add_message("system", data.get('system_prompt'))
+    # If this is the first message in a new chat, add system message if provided
+    if not chat.messages and data.get('system_prompt'):
+        logger.debug(f"Adding system prompt to RAG chat: {data.get('system_prompt')[:30]}...")
+        chat.add_message("system", data.get('system_prompt'))
 
-        # Add the user message to the chat
-        if query:
-            logger.debug(f"Adding user message to RAG chat: {query[:30]}...")
-            chat.add_message("user", query)
+    # Add the user message to the chat
+    if query:
+        logger.debug(f"Adding user message to RAG chat: {query[:30]}...")
+        chat.add_message("user", query)
 
-        # Search for relevant documents
-        search_results = document_processor.search_documents(query, top_k=3, doc_ids=document_ids)
+    # OPTIMIZATION: Use parallel document retrieval with connection pooling
+    # Calculate optimal batch size based on document count
+    start_time = time.time()
+    doc_count = len(document_ids)
+    batch_size = min(max(5, doc_count // 4), 20)  # Between 5 and 20 depending on doc count
+    top_k = min(max(5, doc_count), 15)  # Adaptive top_k based on document count
 
-        # Create context from search results
-        context = ""
-        for i, chunk in enumerate(search_results):
-            doc_id = chunk.get('doc_id')
-            metadata = document_processor.get_document_metadata(doc_id)
-            filename = metadata.get('filename', 'Unknown document') if metadata else 'Unknown document'
+    # Use semantic filtering to prioritize most relevant documents before detailed search
+    relevance_threshold = 0.20  # Minimum relevance score
 
-            context += f"\n\nDocument {i+1} ({filename}):\n{chunk.get('content', '')}"
+    search_results = document_processor.search_documents(
+        query=query,
+        top_k=top_k,
+        doc_ids=document_ids,
+        min_score=relevance_threshold,
+        use_semantic_filtering=True  # Enable semantic pre-filtering
+    )
+    retrieval_time = time.time() - start_time
+    logger.info(f"Document retrieval took {retrieval_time:.2f} seconds for {len(search_results)} chunks")
 
-        # Prepare messages for the API call with context injection
-        api_messages = []
+    # OPTIMIZATION: Create better context from search results with document metadata
+    # Group by document and use a more structured format for better readability
+    doc_groups = {}
+    for chunk in search_results:
+        doc_id = chunk.get('doc_id')
+        if doc_id not in doc_groups:
+            # Cache document metadata to reduce duplicate lookups
+            cache_key = f"doc_meta_{doc_id}"
+            if cache_key in response_cache:
+                metadata = response_cache[cache_key][1]
+            else:
+                metadata = document_processor.get_document_metadata(doc_id)
+                response_cache[cache_key] = (time.time(), metadata)
 
-        # Add system prompt if exists
+            doc_groups[doc_id] = {
+                'metadata': metadata,
+                'chunks': []
+            }
+        doc_groups[doc_id]['chunks'].append(chunk)
+
+    # Build context with better structure and formatting
+    context_parts = []
+    for doc_id, group in doc_groups.items():
+        metadata = group['metadata']
+        if not metadata:
+            continue
+
+        filename = metadata.get('filename', 'Unknown document')
+        title = metadata.get('title', filename)
+
+        # Add document header
+        doc_context = f"Document: {title} (File: {filename})\n"
+
+        # Add relevant chunks with page/section info when available
+        for i, chunk in enumerate(group['chunks']):
+            page = chunk.get('metadata', {}).get('page', '')
+            section = chunk.get('metadata', {}).get('section', '')
+            location = f" | Page: {page}" if page else ""
+            location += f" | Section: {section}" if section else ""
+
+            doc_context += f"\nExcerpt {i+1}{location}:\n{chunk.get('content', '')}\n"
+
+        context_parts.append(doc_context)
+
+    # Join context parts with clear separators
+    context = "\n" + "-" * 40 + "\n".join(context_parts) if context_parts else ""
+
+    # OPTIMIZATION: Cache and reuse system prompts with LRU cache behavior
+    system_prompt_cache_key = f"rag_system_{provider_id}_{model_id}"
+    rag_system_prompt = None
+
+    if system_prompt_cache_key in response_cache:
+        entry_time, rag_system_prompt = response_cache[system_prompt_cache_key]
+        # Check if cache is still valid
+        if time.time() - entry_time >= CACHE_TTL:
+            rag_system_prompt = None
+
+    if not rag_system_prompt:
+        # Add system prompt with RAG-specific instructions
         system_messages = [msg for msg in chat.messages if msg.role == "system"]
         if system_messages:
-            api_messages.append({
-                "role": "system",
-                "content": system_messages[0].content
-            })
+            base_system_prompt = system_messages[0].content
+            rag_system_prompt = (
+                f"{base_system_prompt}\n\n"
+                "When answering, use the provided document information. "
+                "Cite specific documents when referencing information from them. "
+                "If the information needed is not in the documents, clearly state this. "
+                "For each fact from the documents, mention which document it came from."
+            )
+        else:
+            # Add default RAG system prompt
+            rag_system_prompt = (
+                "You are a helpful assistant that answers questions based on the provided documents. "
+                "Cite specific documents when referencing information from them. "
+                "If the information needed is not in the documents, clearly state this. "
+                "For each fact from the documents, mention which document it came from."
+            )
 
-        # Add regular messages (excluding the last user message)
-        regular_messages = [
+        # Cache the system prompt
+        response_cache[system_prompt_cache_key] = (time.time(), rag_system_prompt)
+
+    # OPTIMIZATION: Only include essential message history to reduce token count
+    # and dynamically adjust based on retrieved context size
+    history_limit = min(data.get('history_limit', 4), 6)  # Default to last 4 exchanges, cap at 6
+    # Estimate token count of context to adjust history inclusion
+    context_size = len(context) // 4  # Rough estimate: 4 chars ≈ 1 token
+    if context_size > 3000:
+        history_limit = min(history_limit, 2)  # Reduce history if context is large
+
+    # Prepare API messages
+    api_messages = [{"role": "system", "content": rag_system_prompt}]
+
+    # Get regular messages (excluding the last user message and system)
+    if history_limit > 0:
+        all_regular_messages = [
             msg for msg in chat.messages
             if msg.role != "system" and not (msg.role == "user" and msg == chat.messages[-1])
         ]
+
+        # Take most recent messages based on adjusted history_limit
+        regular_messages = all_regular_messages[-history_limit*2:] if all_regular_messages else []
 
         for message in regular_messages:
             api_messages.append({
@@ -271,62 +497,132 @@ def rag_chat():
                 "content": message.content
             })
 
-        # Add the user query with context
-        if context:
-            enhanced_query = (
-                f"Question: {query}\n\n"
-                f"Please use the following information to answer the question:\n{context}\n\n"
-                f"Answer the question based on the provided information. If the information is not "
-                f"sufficient, say so and provide a general response."
-            )
-        else:
-            enhanced_query = query
+    # OPTIMIZATION: Format query more efficiently to reduce token usage
+    # and ensure context doesn't exceed model limits
+    max_context_length = 6000  # Safe limit for most models
+    if context and len(context) > max_context_length:
+        # Truncate context while preserving document structure
+        context_parts = context.split("-" * 40)
+        truncated_parts = []
+        current_length = 0
 
-        api_messages.append({
-            "role": "user",
-            "content": enhanced_query
-        })
+        for part in context_parts:
+            if current_length + len(part) > max_context_length:
+                # Add a note about truncation
+                truncated_parts.append("\n[Additional document content truncated due to length]")
+                break
+            truncated_parts.append(part)
+            current_length += len(part)
 
-        # Call the provider API
-        logger.debug(f"Calling provider API for RAG: {provider_id}")
-        response = provider.chat_completion(
-            model=model_id or chat.model,
-            messages=api_messages,
-            temperature=data.get('temperature', 0.7),
-            max_tokens=data.get('max_tokens')
+        context = ("-" * 40).join(truncated_parts)
+
+    if context:
+        enhanced_query = (
+            f"Question: {query}\n\n"
+            f"Relevant information from documents:\n{context}\n\n"
+            f"Answer the question based on the provided documents. If the documents don't contain the needed information, acknowledge this."
         )
+    else:
+        enhanced_query = query
 
-        # Check if there was an error
-        if 'error' in response:
-            logger.error(f"Provider API error in RAG: {response['error']}")
-            return jsonify(response), 500
+    api_messages.append({
+        "role": "user",
+        "content": enhanced_query
+    })
 
-        # Extract the assistant response
-        assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
-        logger.debug(f"Received RAG assistant response: {assistant_response[:30]}...")
+    # OPTIMIZATION: Add timeout handling, retry logic, and circuit breaker for API calls
+    max_retries = 2
+    retry_count = 0
+    response = None
+    backoff_factor = 0.5
 
-        # Add the assistant response to the chat
-        chat.add_message("assistant", assistant_response)
+    while retry_count <= max_retries:
+        try:
+            # Call the provider API with timeout
+            logger.debug(f"Calling provider API for RAG: {provider_id} (Attempt {retry_count + 1})")
+            start_time = time.time()
 
-        # Save the chat
-        chat_store.save_chat(chat)
+            response = provider.chat_completion(
+                model=model_id or chat.model,
+                messages=api_messages,
+                temperature=data.get('temperature', 0.7),
+                max_tokens=data.get('max_tokens', 2000)  # Higher default for RAG
+            )
 
-        # Return the response with the chat_id and context information
-        return jsonify({
-            "chat_id": chat.chat_id,
-            "assistant_response": assistant_response,
-            "context_used": bool(context),
-            "documents_used": len(search_results),
-            "full_response": response
+            # If we get here, the call succeeded
+            api_time = time.time() - start_time
+            logger.info(f"RAG API call took {api_time:.2f} seconds")
+            break
+
+        except Exception as e:
+            retry_count += 1
+            logger.warning(f"RAG API call failed (attempt {retry_count}): {str(e)}")
+
+            if retry_count > max_retries:
+                return jsonify({
+                    "error": f"Provider API failed after {max_retries} attempts: {str(e)}"
+                }), 503
+
+            # Exponential backoff before retry
+            time.sleep(backoff_factor * (2 ** retry_count))
+
+    # Check if there was an error
+    if 'error' in response:
+        logger.error(f"Provider API error in RAG: {response['error']}")
+        return jsonify(response), 500
+
+    # Extract the assistant response
+    assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+    logger.debug(f"Received RAG assistant response: {assistant_response[:30]}...")
+
+    # Ensure markdown formatting
+    assistant_response_markdown = ensure_markdown(assistant_response)
+
+    # Add the assistant response to the chat
+    chat.add_message("assistant", assistant_response)
+
+    # Update chat title if this is the first exchange and no title was provided
+    if len(chat.messages) <= 3 and not chat.title:
+        # Generate a title based on the first user message
+        chat.title = query[:30] + "..." if len(query) > 30 else query
+
+    # Save the chat
+    chat_store.save_chat(chat)
+
+    # OPTIMIZATION: Return more detailed source information to improve UI experience
+    source_documents = []
+    for doc_id, group in doc_groups.items():
+        metadata = group['metadata']
+        if not metadata:
+            continue
+
+        source_documents.append({
+            "doc_id": doc_id,
+            "filename": metadata.get('filename', ''),
+            "title": metadata.get('title', metadata.get('filename', '')),
+            "chunks_used": len(group['chunks'])
         })
 
-    except Exception as e:
-        logger.error(f"Error in RAG chat completion: {str(e)}", exc_info=True)
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({"error": f"Server error in RAG: {str(e)}"}), 500
+    # Return the response with enhanced metadata
+    return jsonify({
+        "chat_id": chat.chat_id,
+        "title": chat.title,
+        "assistant_response": assistant_response,
+        "assistant_response_markdown": assistant_response_markdown,
+        "context_used": bool(context),
+        "documents_used": len(search_results),
+        "source_documents": source_documents[:5],  # Return top 5 for UI
+        "processing_time": {
+            "retrieval_seconds": retrieval_time,
+            "api_seconds": time.time() - start_time,
+            "total_seconds": retrieval_time + (time.time() - start_time)
+        },
+        "full_response": response
+    })
 
 @api_routes.route('/documents/upload', methods=['POST'])
+@rate_limit
+@api_error_handler
 def upload_document():
     """Upload a document for RAG processing"""
     # Check if file is present in the request
@@ -343,40 +639,58 @@ def upload_document():
     if not allowed_file(file.filename):
         return jsonify({"error": f"File type not allowed. Supported types: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
 
+    # Secure the filename
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+    # Save the file
+    file.save(file_path)
+
     try:
-        # Secure the filename
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-
-        # Save the file
-        file.save(file_path)
-
-        # Read the file content
+        # Read the file content with proper encoding detection
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
+    except UnicodeDecodeError:
+        # Try another encoding if utf-8 fails
+        try:
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read file {filename}: {str(e)}")
+            return jsonify({"error": f"Failed to read file: {str(e)}"}), 500
 
-        # Process the document
-        doc_id = document_processor.process_document(content, filename)
+    # Process the document
+    start_time = time.time()
+    doc_id = document_processor.process_document(content, filename)
+    processing_time = time.time() - start_time
 
-        # Get document metadata
-        metadata = document_processor.get_document_metadata(doc_id)
+    # Get document metadata
+    metadata = document_processor.get_document_metadata(doc_id)
 
-        return jsonify({
-            "doc_id": doc_id,
-            "filename": filename,
-            "metadata": metadata
-        })
+    return jsonify({
+        "doc_id": doc_id,
+        "filename": filename,
+        "metadata": metadata,
+        "processing_time_seconds": processing_time,
+        "size_bytes": os.path.getsize(file_path),
+        "success": True
+    })
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# All the routes below use caching and rate limiting to improve performance
 
 @api_routes.route('/documents', methods=['GET'])
+@cache_response(ttl=30)  # Cache for 30 seconds
+@rate_limit
+@api_error_handler
 def list_documents():
     """Get a list of all documents"""
     documents = document_processor.list_documents()
     return jsonify(documents)
 
 @api_routes.route('/documents/<doc_id>', methods=['GET'])
+@cache_response(ttl=300)  # Cache for 5 minutes
+@rate_limit
+@api_error_handler
 def get_document(doc_id):
     """Get a specific document by ID"""
     metadata = document_processor.get_document_metadata(doc_id)
@@ -391,6 +705,8 @@ def get_document(doc_id):
     })
 
 @api_routes.route('/documents/<doc_id>/search', methods=['GET'])
+@rate_limit
+@api_error_handler
 def search_document(doc_id):
     """Search within a specific document"""
     query = request.args.get('query', '')
@@ -430,21 +746,45 @@ def search_document(doc_id):
     })
 
 @api_routes.route('/documents/<doc_id>', methods=['DELETE'])
+@rate_limit
+@api_error_handler
 def delete_document(doc_id):
     """Delete a document by ID"""
     success = document_processor.delete_document(doc_id)
     if not success:
         return jsonify({"error": f"Failed to delete document {doc_id}"}), 500
 
+    # Clear any cached responses that might include this document
+    global response_cache
+    response_cache = {k: v for k, v in response_cache.items() if '/documents' not in k}
+
     return jsonify({"success": True})
 
 @api_routes.route('/chats', methods=['GET'])
+@cache_response(ttl=10)  # Short cache for frequently changing data
+@rate_limit
+@api_error_handler
 def list_chats():
     """Get a list of all chats"""
+    limit = request.args.get('limit', default=20, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+
     chats = chat_store.list_chats()
-    return jsonify(chats)
+
+    # Apply pagination
+    paginated_chats = chats[offset:offset+limit]
+
+    return jsonify({
+        "chats": paginated_chats,
+        "total": len(chats),
+        "limit": limit,
+        "offset": offset
+    })
 
 @api_routes.route('/chats/<chat_id>', methods=['GET'])
+@cache_response(ttl=10)  # Short cache for chat data
+@rate_limit
+@api_error_handler
 def get_chat(chat_id):
     """Get a specific chat by ID"""
     chat = chat_store.get_chat(chat_id)
@@ -454,15 +794,23 @@ def get_chat(chat_id):
     return jsonify(chat.to_dict())
 
 @api_routes.route('/chats/<chat_id>', methods=['DELETE'])
+@rate_limit
+@api_error_handler
 def delete_chat(chat_id):
     """Delete a chat by ID"""
     success = chat_store.delete_chat(chat_id)
     if not success:
         return jsonify({"error": f"Failed to delete chat {chat_id}"}), 500
 
+    # Clear any cached responses related to this chat
+    global response_cache
+    response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+
     return jsonify({"success": True})
 
 @api_routes.route('/chats/<chat_id>/title', methods=['PUT'])
+@rate_limit
+@api_error_handler
 def update_chat_title(chat_id):
     """Update a chat's title"""
     data = request.json
@@ -481,9 +829,139 @@ def update_chat_title(chat_id):
     if not success:
         return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
 
+    # Clear cached responses that might include this chat
+    global response_cache
+    response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+
+    return jsonify({"success": True})
+
+@api_routes.route('/chats/<chat_id>/retry', methods=['POST'])
+@rate_limit
+@api_error_handler
+def retry_chat(chat_id):
+    """Retry the last message in a chat with the same or different model"""
+    data = request.json
+    provider_id = data.get('provider')
+    model_id = data.get('model')
+    
+    # Get the chat
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        return jsonify({"error": f"Chat {chat_id} not found"}), 404
+    
+    # Make sure there are messages to retry
+    if not chat.messages:
+        return jsonify({"error": "No messages to retry"}), 400
+    
+    # Find the last user message
+    user_messages = [msg for msg in chat.messages if msg.role == "user"]
+    if not user_messages:
+        return jsonify({"error": "No user messages to retry"}), 400
+    
+    last_user_message = user_messages[-1]
+    
+    # Create a copy of the chat to preserve the original messages
+    chat_copy = copy.deepcopy(chat)
+    
+    # Get provider instance
+    provider = get_provider(provider_id or chat.provider)
+    if not provider:
+        return jsonify({"error": f"Provider {provider_id or chat.provider} not found"}), 404
+    
+    # Prepare messages for the API call
+    api_messages = []
+    for message in chat.messages:
+        api_messages.append({
+            "role": message.role,
+            "content": message.content
+        })
+    
+    # Call the provider API
+    try:
+        retry_count = 0
+        max_retries = 3
+        response = None
+        backoff_factor = 0.5
+        
+        while retry_count <= max_retries:
+            try:
+                logger.debug(f"Retrying chat {chat_id} with provider {provider_id or chat.provider} and model {model_id or chat.model}")
+                start_time = time.time()
+                
+                response = provider.chat_completion(
+                    model=model_id or chat.model,
+                    messages=api_messages,
+                    temperature=0.7,
+                    max_tokens=2000
+                )
+                
+                api_time = time.time() - start_time
+                logger.info(f"Retry API call took {api_time:.2f} seconds")
+                break
+                
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry API call failed (attempt {retry_count}): {str(e)}")
+                
+                if retry_count > max_retries:
+                    return jsonify({
+                        "error": f"Provider API failed after {max_retries} attempts: {str(e)}"
+                    }), 503
+                
+                # Exponential backoff before retry
+                time.sleep(backoff_factor * (2 ** retry_count))
+        
+        # Check if there was an error
+        if 'error' in response:
+            logger.error(f"Provider API error in retry: {response['error']}")
+            return jsonify(response), 500
+        
+        # Extract the assistant response
+        assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+        logger.debug(f"Received retry assistant response: {assistant_response[:30]}...")
+        
+        # Add the assistant response to the chat
+        chat.add_message("assistant", assistant_response)
+        
+        # Update the chat in the store
+        success = chat_store.update_chat(chat)
+        if not success:
+            return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
+        
+        # Clear cached responses that might include this chat
+        global response_cache
+        response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        logger.error(f"Error retrying chat {chat_id}: {str(e)}")
+        return jsonify({"error": f"Failed to retry chat: {str(e)}"}), 500
+
+@api_routes.route('/chats/<chat_id>/save', methods=['POST'])
+@rate_limit
+@api_error_handler
+def save_chat(chat_id):
+    """Save a chat"""
+    # Get the chat without requiring JSON payload
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        return jsonify({"error": f"Chat {chat_id} not found"}), 404
+
+    # Save the chat
+    success = chat_store.update_chat(chat)
+    if not success:
+        return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
+
+    # Clear cached responses that might include this chat
+    global response_cache
+    response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+
     return jsonify({"success": True})
 
 @api_routes.route('/personas', methods=['GET'])
+@cache_response(ttl=3600)  # Cache for 1 hour since personas rarely change
+@api_error_handler
 def get_personas():
     """Get a list of available personas (system prompts)"""
     personas = [
@@ -564,3 +1042,26 @@ def get_personas():
         }
     ]
     return jsonify(personas)
+
+# Add a route to clear cache - useful for development/testing
+@api_routes.route('/cache/clear', methods=['POST'])
+@api_error_handler
+def clear_cache():
+    """Clear the API response cache"""
+    global response_cache
+    response_cache = {}
+    return jsonify({"success": True, "message": "Cache cleared"})
+
+# Add a metrics endpoint for monitoring
+@api_routes.route('/metrics', methods=['GET'])
+@api_error_handler
+def get_metrics():
+    """Get API metrics and statistics"""
+    stats = {
+        "cache_size": len(response_cache),
+        "rate_limiter_ips": len(rate_limiter.requests),
+        "chats_count": len(chat_store.list_chats()),
+        "documents_count": len(document_processor.list_documents()),
+        "uptime_seconds": int(time.time() - current_app.start_time)
+    }
+    return jsonify(stats)

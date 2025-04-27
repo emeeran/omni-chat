@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, RefreshCw } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { MessageSquare, Send, RefreshCw, Bot, User, PanelRight, Bookmark, MoreHorizontal, Check } from 'lucide-react';
 import { Chat, Message, sendChatMessage } from '@/lib/api';
 import ChatMessages from './ChatMessages';
+import ReactMarkdown from 'react-markdown';
 
 type ChatPanelProps = {
   chat: Chat;
@@ -17,32 +18,140 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showFallbackMessage, setShowFallbackMessage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(0);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Custom pagination hook to ensure stable pagination
+  const usePagination = (messages: Message[], itemsPerPage = 1) => {
+    const [currentPage, setCurrentPage] = useState(0);
+    
+    // Get all user message indices
+    const userIndices = useMemo(() => {
+      return messages
+        .map((msg: Message, idx: number) => msg.role === 'user' ? idx : -1)
+        .filter((idx: number) => idx !== -1);
+    }, [messages]);
+    
+    // Calculate total pages
+    const totalPages = Math.max(1, Math.ceil(userIndices.length / itemsPerPage));
+    
+    // Ensure page is in bounds
+    useEffect(() => {
+      if (currentPage >= totalPages) {
+        setCurrentPage(Math.max(0, totalPages - 1));
+      }
+    }, [currentPage, totalPages]);
+    
+    // Go to last page when new messages are added
+    const prevUserCountRef = useRef(userIndices.length);
+    useEffect(() => {
+      if (userIndices.length > prevUserCountRef.current) {
+        setCurrentPage(Math.max(0, totalPages - 1));
+      }
+      prevUserCountRef.current = userIndices.length;
+    }, [userIndices.length, totalPages]);
+    
+    // Reset page when chat changes
+    useEffect(() => {
+      setCurrentPage(0);
+    }, [messages[0]?.message_id]);
+    
+    // Get visible messages for current page
+    const getVisiblePairs = () => {
+      const start = currentPage * itemsPerPage;
+      const end = Math.min(start + itemsPerPage, userIndices.length);
+      const pageUserIndices = userIndices.slice(start, end);
+      
+      return pageUserIndices.map((userIdx: number) => {
+        const userMsg = messages[userIdx];
+        
+        // Find next assistant message
+        let assistantMsg: Message | null = null;
+        for (let i = userIdx + 1; i < messages.length; i++) {
+          if (messages[i].role === 'assistant') {
+            assistantMsg = messages[i];
+            break;
+          }
+        }
+        
+        return { userMsg, assistantMsg };
+      });
+    };
+    
+    return {
+      currentPage,
+      setCurrentPage,
+      totalPages,
+      visiblePairs: getVisiblePairs(),
+      goToNextPage: () => setCurrentPage(Math.min(currentPage + 1, totalPages - 1)),
+      goToPrevPage: () => setCurrentPage(Math.max(0, currentPage - 1)),
+      goToFirstPage: () => setCurrentPage(0),
+      goToLastPage: () => setCurrentPage(Math.max(0, totalPages - 1)),
+      hasNextPage: currentPage < totalPages - 1,
+      hasPrevPage: currentPage > 0
+    };
   };
+  
+  // Use the pagination hook
+  const pagination = usePagination(chat.messages);
 
+  // Memoize scrollToBottom function
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  // Scroll chat to bottom when messages change
   useEffect(() => {
     scrollToBottom();
+  }, [chat.messages, scrollToBottom]);
+
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [inputValue]);
+
+  // Auto-scroll chat history container to bottom when messages change
+  useEffect(() => {
+    if (chatHistoryRef.current) {
+      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+    }
   }, [chat.messages]);
 
-  // Check API connectivity on mount and set up periodic checks
+  // Check API connectivity with debounce
   useEffect(() => {
+    let isMounted = true;
+
     const checkApiStatus = async () => {
+      if (!isMounted) return;
+
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+
         const response = await fetch('/api/health', {
           method: 'HEAD',
-          signal: AbortSignal.timeout(2000) // Timeout after 2 seconds
+          signal: controller.signal
         });
-        if (response.ok) {
-          setErrorMessage(null);
-          setShowFallbackMessage(false);
-        } else {
-          setShowFallbackMessage(true);
+
+        clearTimeout(timeoutId);
+
+        if (isMounted) {
+          if (response.ok) {
+            setErrorMessage(null);
+            setShowFallbackMessage(false);
+          } else {
+            setShowFallbackMessage(true);
+          }
         }
       } catch (error) {
-        console.error('Error checking API status:', error);
-        setShowFallbackMessage(true);
+        if (isMounted) {
+          console.error('Error checking API status:', error);
+          setShowFallbackMessage(true);
+        }
       }
     };
 
@@ -52,11 +161,15 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     // Then check every 30 seconds
     const intervalId = setInterval(checkApiStatus, 30000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, []);
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
+  // Memoize handleSendMessage to avoid unnecessary recreations
+  const handleSendMessage = useCallback(async (message = inputValue) => {
+    if (!message.trim() || isLoading) return;
 
     try {
       setIsLoading(true);
@@ -65,7 +178,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const userMessage: Message = {
         message_id: `temp-${Date.now()}`,
         role: 'user',
-        content: inputValue,
+        content: message,
         created_at: new Date().toISOString(),
       };
 
@@ -81,7 +194,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       try {
         // Attempt to send the message to the API
         const response = await sendChatMessage(
-          inputValue,
+          message,
           chat.chat_id,
           chat.provider,
           chat.model,
@@ -89,7 +202,10 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         );
 
         // Update with the API response
-        onUpdateChat(response);
+        onUpdateChat({
+          ...response,
+          title: response.title ?? '', // Ensure title is always a string
+        });
         setShowFallbackMessage(false);
       } catch (error) {
         console.error('Failed to send message to API:', error);
@@ -116,20 +232,19 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [inputValue, isLoading, chat, onUpdateChat]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
-  };
+  }, [handleSendMessage]);
 
   // Handle running code from code blocks
-  const handleRunCode = async (code: string, language?: string) => {
+  const handleRunCode = useCallback(async (code: string, language?: string) => {
     try {
       // If no language is specified, try to infer it from the first line
-      // (e.g., "#!/bin/bash" or "#!/usr/bin/env python")
       if (!language && code.startsWith('#!')) {
         const firstLine = code.split('\n')[0].toLowerCase();
         if (firstLine.includes('bash') || firstLine.includes('sh')) {
@@ -153,91 +268,42 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const assistantMessage: Message = {
         message_id: `exec-${Date.now()}`,
         role: 'assistant',
-        content: `Executing the code...`,
+        content: 'Executing code...',
         created_at: new Date().toISOString(),
       };
 
-      // Update UI with both messages
-      const updatedMessages = [...chat.messages, userMessage, assistantMessage];
+      // Update the chat with the messages
       onUpdateChat({
         ...chat,
-        messages: updatedMessages,
+        messages: [...chat.messages, userMessage, assistantMessage],
       });
 
-      // Run the code in a terminal via the API
-      let command = code;
-
-      // Wrap the command in the appropriate interpreter if needed
-      if (language === 'python') {
-        // Create a temp Python file and run it
-        const timestamp = Date.now();
-        const filename = `temp_script_${timestamp}.py`;
-
-        // First create the file
-        const createFileResponse = await fetch('/api/terminal/write-file', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filename,
-            content: code,
-          }),
-        });
-
-        if (!createFileResponse.ok) {
-          throw new Error('Failed to create temporary script file');
-        }
-
-        // Then execute it
-        command = `python ${filename}`;
-      } else if (language === 'javascript' || language === 'js') {
-        // Create a temp JS file and run it
-        const timestamp = Date.now();
-        const filename = `temp_script_${timestamp}.js`;
-
-        // First create the file
-        const createFileResponse = await fetch('/api/terminal/write-file', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filename,
-            content: code,
-          }),
-        });
-
-        if (!createFileResponse.ok) {
-          throw new Error('Failed to create temporary script file');
-        }
-
-        // Then execute it
-        command = `node ${filename}`;
-      }
-
-      // Execute the command
+      // Call the API to execute the code
       const response = await fetch('/api/terminal/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          command,
+          code,
+          language,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to execute command');
-      }
-
       const result = await response.json();
 
-      // Update the assistant message with the results
+      // Create a message with the output
       const outputMessage: Message = {
         message_id: `output-${Date.now()}`,
         role: 'assistant',
-        content: `**Code execution result:**\n\`\`\`\n${result.output || 'Command executed successfully with no output.'}\n\`\`\``,
+        content: `<div class="flex flex-col space-y-2">
+          <div class="flex items-center space-x-2 text-blue-600 dark:text-blue-400">
+            <span class="font-medium">Code execution result:</span>
+          </div>
+          <div class="bg-gray-50 dark:bg-gray-900 rounded-md p-3 overflow-auto">
+            <pre class="whitespace-pre-wrap">${result.output || 'Command executed with no output.'}</pre>
+          </div>
+        </div>`,
         created_at: new Date().toISOString(),
       };
 
@@ -258,7 +324,14 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       const errorOutput: Message = {
         message_id: `error-${Date.now()}`,
         role: 'assistant',
-        content: `**Error executing code:**\n\`\`\`\n${error instanceof Error ? error.message : 'Unknown error occurred'}\n\`\`\``,
+        content: `<div class="flex flex-col space-y-2">
+          <div class="flex items-center space-x-2 text-red-600 dark:text-red-400">
+            <span class="font-medium">Error executing code</span>
+          </div>
+          <div class="bg-red-50 dark:bg-red-900/20 rounded-md p-3 overflow-auto">
+            <pre class="whitespace-pre-wrap text-red-800 dark:text-red-200">${error instanceof Error ? error.message : 'Unknown error occurred'}</pre>
+          </div>
+        </div>`,
         created_at: new Date().toISOString(),
       };
 
@@ -268,12 +341,12 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         messages: [...chat.messages, errorOutput],
       });
     }
-  };
+  }, [chat, onUpdateChat]);
 
   return (
-    <div className="relative flex flex-col h-full">
+    <div className="relative flex flex-col h-full min-h-0 bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
-        <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-md m-4 flex items-center justify-between">
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-lg rounded-l-md m-4 flex items-center justify-between backdrop-blur-sm">
           <span>Using fallback mode - Backend API is unavailable</span>
           <button
             onClick={() => setShowFallbackMessage(false)}
@@ -284,89 +357,134 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
-      {chat.messages.length === 0 ? (
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="mb-4 p-4 rounded-full bg-primary-50 dark:bg-primary-900/20">
-              <MessageSquare className="w-8 h-8 text-primary-500" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Start a conversation</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
-              Send a message to start chatting with the AI assistant using {chat.model}.
-            </p>
-            {showFallbackMessage && (
-              <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-md text-sm max-w-md">
-                <p>The backend API is currently unavailable. You can still use the application with fallback data.</p>
+      {/* Chat history paginated container */}
+      <div className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto flex flex-col">
+        {chat.messages.length === 0 ? (
+          <div className="text-gray-400 text-sm italic flex items-center justify-center h-full">No messages yet.</div>
+        ) : (
+          <div className="w-full max-w-2xl space-y-8 mx-auto">            
+            {/* Render message pairs */}
+            {pagination.visiblePairs.length === 0 ? (
+              <div className="text-center italic text-gray-500 py-8">
+                No messages on this page. <button 
+                  onClick={pagination.goToFirstPage} 
+                  className="text-blue-600 hover:underline">Go to first page</button>
+              </div>
+            ) : (
+              pagination.visiblePairs.map(({ userMsg, assistantMsg }) => (
+                <div key={userMsg.message_id} className="flex flex-col gap-2 bg-white dark:bg-gray-800/70 rounded-2xl shadow-md p-4">
+                  {/* User message */}
+                  <div className="flex items-start justify-end gap-2">
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-blue-600 font-semibold">User</span>
+                        <span className="bg-gradient-to-br from-blue-400 to-indigo-400 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">U</span>
+                      </div>
+                      <div className="bg-blue-100 dark:bg-blue-900/40 text-gray-900 dark:text-blue-100 rounded-xl rounded-br-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                        <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{userMsg.content || ''}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Assistant message */}
+                  <div className="flex items-start justify-start gap-2">
+                    <span className="bg-gradient-to-br from-green-400 to-emerald-500 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">A</span>
+                    <div className="flex flex-col items-start">
+                      <span className="text-xs text-purple-600 dark:text-purple-300 font-semibold mb-1">Assistant</span>
+                      <div className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-xl rounded-bl-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                        {assistantMsg ? (
+                          <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{assistantMsg.content}</ReactMarkdown>
+                        ) : (
+                          <span className="italic text-gray-400">...</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Timestamp */}
+                  <div className="flex justify-center mt-2">
+                    <span className="block text-xs text-gray-400 font-mono select-none">
+                      {assistantMsg
+                        ? `------------------- Generated with ${chat.provider} | ${chat.model} ${new Date(assistantMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                        : userMsg
+                          ? `------------------- Generated with ${chat.provider} | ${chat.model} ${new Date(userMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                          : ''}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+            
+            {/* Pagination controls */}
+            {pagination.totalPages > 1 && (
+              <div className="flex justify-between mt-6">
                 <button
-                  className="mt-2 flex items-center justify-center text-amber-700 dark:text-amber-300 hover:underline"
-                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded hover:shadow-md disabled:opacity-50 disabled:bg-gray-400 transition-all"
+                  onClick={pagination.goToPrevPage}
+                  disabled={!pagination.hasPrevPage}
                 >
-                  <RefreshCw className="w-3 h-3 mr-1" />
-                  <span>Retry connection</span>
+                  {'<<<Previsouse Page'}
+                </button>
+                <span className="text-center text-sm text-gray-600 dark:text-gray-300 font-medium self-center bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
+                  Page {pagination.currentPage + 1} of {pagination.totalPages}
+                </span>
+                <button
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded hover:shadow-md disabled:opacity-50 disabled:bg-gray-400 transition-all"
+                  onClick={pagination.goToNextPage}
+                  disabled={!pagination.hasNextPage}
+                >
+                  {'Next Page >>>>>>'}
                 </button>
               </div>
             )}
           </div>
-        </div>
-      ) : (
-        <ChatMessages
-          messages={chat.messages}
-          isLoading={isLoading}
-          onRunCode={handleRunCode}
-        />
-      )}
+        )}
+      </div>
 
       {errorMessage && (
-        <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 text-yellow-800 dark:bg-yellow-900/30 dark:border-yellow-800 dark:text-yellow-200 text-sm rounded flex justify-between items-center">
+        <div className="mx-4 mb-3 p-3 bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200 text-sm rounded-lg flex justify-between items-center shadow-md backdrop-blur-sm">
           <span>{errorMessage}</span>
           <button
             onClick={() => setErrorMessage(null)}
-            className="ml-2 p-1 hover:bg-yellow-100 dark:hover:bg-yellow-800 rounded-full"
+            className="ml-2 p-1 hover:bg-red-100 dark:hover:bg-red-800 rounded-full"
           >
             <span className="text-xs">✕</span>
           </button>
         </div>
       )}
 
-      <div className="p-4 border-t border-gray-200 dark:border-dark-700">
-        <div className="relative">
-          <textarea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-dark-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-dark-800 text-gray-900 dark:text-gray-100"
-            rows={3}
-            disabled={isLoading}
-          />
-          <button
-            onClick={handleSendMessage}
-            className={`absolute right-2 bottom-2 p-2 rounded-md ${isLoading || !inputValue.trim()
-                ? 'bg-gray-300 dark:bg-dark-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                : 'bg-primary-500 hover:bg-primary-600 text-white'
-              }`}
-            disabled={isLoading || !inputValue.trim()}
-          >
-            {isLoading ? (
-              <div className="w-6 h-6 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin" />
-            ) : (
-              <Send className="w-6 h-6" />
-            )}
-          </button>
-        </div>
-        {showFallbackMessage && (
-          <div className="mt-2 text-xs text-right">
-            <button
-              onClick={() => window.location.reload()}
-              className="text-primary-500 hover:text-primary-600 dark:text-primary-400 flex items-center justify-end ml-auto"
-            >
-              <RefreshCw className="w-3 h-3 mr-1" />
-              <span>Retry connection</span>
-            </button>
+      <div className="px-4 pb-4 pt-2 bg-gradient-to-t from-white/80 via-white/60 to-transparent dark:from-gray-900/80 dark:via-gray-900/60 dark:to-transparent backdrop-blur-sm">
+        <div className="relative mx-auto max-w-3xl">
+          <div className="relative rounded-2xl shadow-xl bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl p-2 animate-fadeIn border border-gray-100 dark:border-gray-700">
+            <div className="flex items-end space-x-2">
+              <div className="relative flex-1">
+                <textarea
+                  ref={textareaRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type a message..."
+                  className="w-full px-4 py-3.5 pr-12 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/60 dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 resize-none transition-all duration-200"
+                  rows={1}
+                  disabled={isLoading}
+                />
+              </div>
+              <button
+                onClick={() => handleSendMessage()}
+                className={`p-3.5 rounded-xl ${isLoading || !inputValue.trim()
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md hover:shadow-lg'
+                  } transition-all duration-200`}
+                disabled={isLoading || !inputValue.trim()}
+              >
+                {isLoading ? (
+                  <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </button>
+            </div>
           </div>
-        )}
+        </div>
       </div>
-      <div ref={messagesEndRef} />
     </div>
   );
 }
