@@ -35,6 +35,7 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
   const [pendingNewChat, setPendingNewChat] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
   const [showRetryDialog, setShowRetryDialog] = useState(false);
+  const [audioResponse, setAudioResponse] = useState(false);
 
   // Fetch chat list
   useEffect(() => {
@@ -380,7 +381,8 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-dark-900">
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar */}
       <Sidebar
         chats={chats}
         currentChatId={currentChat?.chat_id || ''}
@@ -391,63 +393,83 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
         onSaveChat={handleSaveChat}
         onExportChat={handleExportChat}
         onRetryChat={handleRetryChat}
+        onAudioResponseChange={setAudioResponse}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {currentChat && (
-          <>
-            {showSavePrompt && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-sm">
-                  <h2 className="text-lg font-bold mb-2">Save Conversation</h2>
-                  <input
-                    className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
-                    placeholder="Enter file name..."
-                    value={saveFileName}
-                    onChange={(e) => setSaveFileName(e.target.value)}
-                    autoFocus
-                  />
-                  <div className="flex justify-end space-x-2">
-                    <button
-                      className="px-3 py-1.5 bg-gray-300 dark:bg-gray-700 rounded"
-                      onClick={() => {
-                        setShowSavePrompt(false);
-                        setSaveFileName('');
-                        setPendingNewChat(false);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="px-3 py-1.5 bg-blue-600 text-white rounded"
-                      onClick={handleSaveConversation}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Retry Dialog */}
-            {showRetryDialog && currentChat && (
-              <RetryDialog
-                isOpen={showRetryDialog}
-                onClose={() => setShowRetryDialog(false)}
-                onRetry={executeRetry}
-                currentProvider={currentChat.provider}
-                currentModel={currentChat.model}
-              />
-            )}
-
-            <ChatPanel
-              chat={currentChat}
-              selectedMessage=""
-              onUpdateChat={handleUpdateChat}
-            />
-          </>
-        )}
+      {/* Main Content */}
+      <main className="flex-1 overflow-hidden relative">
+        {isLoading ? (
+          <div className="h-full w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900">
+            <Loader2 className="h-8 w-8 text-blue-500 animate-spin mb-4" />
+            <p className="text-gray-500 dark:text-gray-400">Loading conversation...</p>
+          </div>
+        ) : error ? (
+          <div className="h-full w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 p-8">
+            <div className="max-w-md text-center">
+              <h2 className="text-xl font-semibold text-red-600 dark:text-red-400 mb-2">Error</h2>
+              <p className="text-gray-600 dark:text-gray-300 mb-4">{error}</p>
+              <button
+                onClick={handleNewChat}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
+              >
+                Start a New Chat
+              </button>
+            </div>
+          </div>
+        ) : currentChat ? (
+          <ChatPanel 
+            chat={currentChat} 
+            onUpdateChat={handleUpdateChat}
+            audioResponse={audioResponse}
+          />
+        ) : null}
       </main>
+
+      {/* Retry Dialog */}
+      {showRetryDialog && (
+        <RetryDialog
+          onClose={() => setShowRetryDialog(false)}
+          onRetry={executeRetry}
+        />
+      )}
+
+      {/* Save Prompt Dialog */}
+      {showSavePrompt && (
+        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4 dark:text-white">Save Conversation</h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              Enter a title for this conversation:
+            </p>
+            <input
+              type="text"
+              value={saveFileName}
+              onChange={(e) => setSaveFileName(e.target.value)}
+              placeholder="Conversation title"
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              autoFocus
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => {
+                  setShowSavePrompt(false);
+                  setSaveFileName('');
+                }}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveConversation}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                disabled={!saveFileName.trim()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import {
   Sun, Moon, FileText, Sparkles, Menu, Users, Bookmark,
   ChevronRight,
 } from 'lucide-react';
-import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model } from '@/lib/api';
+import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model, getAllModels } from '@/lib/api';
 import { SidebarHeader } from './SidebarHeader';
 import { saveAs } from 'file-saver';
 
@@ -60,6 +60,7 @@ type SidebarProps = {
   onSaveChat: (chatId: string) => void;
   onExportChat: (chatId: string, format: 'md' | 'pdf' | 'json') => void;
   onRetryChat: (chatId: string) => void;
+  onAudioResponseChange?: (enabled: boolean) => void;
 };
 
 // Custom hook for local storage
@@ -100,6 +101,7 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => voi
 function useApiData() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
+  const [allModels, setAllModels] = useState<{[providerId: string]: Model[]}>({});
   const [personas, setPersonas] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -129,9 +131,18 @@ function useApiData() {
         }
       }
       
-      // Fetch models for the selected provider
-      const modelsData = await getModels(defaultProviderId);
-      setModels(modelsData);
+      // Fetch all models for all providers
+      const allModelsData = await getAllModels(providersData);
+      setAllModels(allModelsData);
+      
+      // Set the current models to the ones for the default provider
+      if (allModelsData[defaultProviderId]) {
+        setModels(allModelsData[defaultProviderId]);
+      } else {
+        // Fallback to fetching just the default provider's models
+        const modelsData = await getModels(defaultProviderId);
+        setModels(modelsData);
+      }
       
       // Fetch personas
       const personasData = await getPersonas();
@@ -144,6 +155,20 @@ function useApiData() {
     }
   }, [defaults.provider]);
   
+  // Function to set models for a specific provider - using cached models when available
+  const switchToProvider = useCallback((providerId: string) => {
+    if (!providerId) return;
+    
+    // If we already have models for this provider, use them
+    if (allModels[providerId]) {
+      setModels(allModels[providerId]);
+      return allModels[providerId];
+    }
+    
+    // Otherwise fetch them
+    return fetchModelsForProvider(providerId);
+  }, [allModels]);
+  
   // Fetch models for a specific provider
   const fetchModelsForProvider = useCallback(async (providerId: string) => {
     if (!providerId) return [];
@@ -151,7 +176,14 @@ function useApiData() {
     setLoadingModels(true);
     try {
       const modelsData = await getModels(providerId);
+      
+      // Update both the current models and the cached allModels
       setModels(modelsData);
+      setAllModels(prev => ({
+        ...prev,
+        [providerId]: modelsData
+      }));
+      
       return modelsData;
     } catch (error) {
       console.error(`Error fetching models for ${providerId}:`, error);
@@ -169,10 +201,12 @@ function useApiData() {
   return {
     providers,
     models,
+    allModels,
     personas,
     loading,
     loadingModels,
-    fetchModelsForProvider
+    fetchModelsForProvider,
+    switchToProvider
   };
 }
 
@@ -285,76 +319,141 @@ const SettingsControl = memo(({
 // ModelPreview component to show visual preview of models
 const ModelPreview = memo(({ 
   models, 
+  allModels,
   provider, 
   selectedModel, 
   onModelSelect, 
-  isLoading 
+  isLoading,
+  showAllProviders = false
 }: { 
   models: Model[], 
+  allModels?: {[providerId: string]: Model[]},
   provider: string, 
   selectedModel: string, 
   onModelSelect: (modelId: string) => void,
-  isLoading: boolean
+  isLoading: boolean,
+  showAllProviders?: boolean
 }) => {
+  // Determine which models to display
+  const displayModels = useMemo(() => {
+    if (showAllProviders && allModels) {
+      // Flatten all models from all providers
+      let allProviderModels: Model[] = [];
+      Object.values(allModels).forEach(providerModels => {
+        allProviderModels = [...allProviderModels, ...providerModels];
+      });
+      return allProviderModels;
+    } else {
+      // Just show models for the current provider
+      return models;
+    }
+  }, [models, allModels, showAllProviders]);
+
   // Group models by main capabilities for visual organization - using useMemo for performance
-  const modelGroups = useMemo(() => ({
-    vision: models.filter(m => m.capabilities.includes('vision')),
-    chat: models.filter(m => !m.capabilities.includes('vision') && m.capabilities.includes('chat')),
-    other: models.filter(m => !m.capabilities.includes('vision') && !m.capabilities.includes('chat'))
-  }), [models]);
+  const modelGroups = useMemo(() => {
+    // First group by provider if showing all providers
+    if (showAllProviders && allModels) {
+      const groupedByProvider: {[providerId: string]: Model[]} = {};
+      
+      displayModels.forEach(model => {
+        if (!groupedByProvider[model.provider]) {
+          groupedByProvider[model.provider] = [];
+        }
+        groupedByProvider[model.provider].push(model);
+      });
+      
+      return groupedByProvider;
+    }
+    
+    // Otherwise group by capability
+    return {
+      vision: displayModels.filter(m => m.capabilities.includes('vision')),
+      chat: displayModels.filter(m => !m.capabilities.includes('vision') && m.capabilities.includes('chat')),
+      other: displayModels.filter(m => !m.capabilities.includes('vision') && !m.capabilities.includes('chat'))
+    };
+  }, [displayModels, showAllProviders, allModels]);
 
   // Get selected model details - using useMemo to avoid recalculation on every render
   const selectedModelDetails = useMemo(() => 
-    models.find(m => m.id === selectedModel), 
-    [models, selectedModel]
+    displayModels.find(m => m.id === selectedModel), 
+    [displayModels, selectedModel]
   );
   
   // Group all model data for the dropdown in one memo
   const { dropdownOptions, hasModels } = useMemo(() => {
-    const hasVision = modelGroups.vision.length > 0;
-    const hasChat = modelGroups.chat.length > 0;
-    const hasOther = modelGroups.other.length > 0;
-    
-    return {
-      hasModels: models.length > 0,
-      dropdownOptions: (
-        <>
-          {hasVision && (
-            <optgroup label="Vision Models">
-              {modelGroups.vision.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          
-          {hasChat && (
-            <optgroup label="Chat Models">
-              {modelGroups.chat.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          
-          {hasOther && (
-            <optgroup label="Other Models">
-              {modelGroups.other.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </>
-      )
-    };
-  }, [modelGroups, models.length]);
+    if (showAllProviders && typeof modelGroups !== 'function' && !Array.isArray(modelGroups)) {
+      // For provider-grouped models
+      const providerKeys = Object.keys(modelGroups);
+      
+      return {
+        hasModels: displayModels.length > 0,
+        dropdownOptions: (
+          <>
+            {providerKeys.map(providerId => (
+              <optgroup key={providerId} label={providerId.charAt(0).toUpperCase() + providerId.slice(1)}>
+                {modelGroups[providerId].map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} {model.economical ? '(Economical)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </>
+        )
+      };
+    } else {
+      // Original capability-grouped models
+      const capabilityGroups = modelGroups as {
+        vision: Model[],
+        chat: Model[],
+        other: Model[]
+      };
+      
+      const hasVision = capabilityGroups.vision.length > 0;
+      const hasChat = capabilityGroups.chat.length > 0;
+      const hasOther = capabilityGroups.other.length > 0;
+      
+      return {
+        hasModels: displayModels.length > 0,
+        dropdownOptions: (
+          <>
+            {hasVision && (
+              <optgroup label="Vision Models">
+                {capabilityGroups.vision.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} {model.economical ? '(Economical)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            
+            {hasChat && (
+              <optgroup label="Chat Models">
+                {capabilityGroups.chat.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} {model.economical ? '(Economical)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            
+            {hasOther && (
+              <optgroup label="Other Models">
+                {capabilityGroups.other.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} {model.economical ? '(Economical)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </>
+        )
+      };
+    }
+  }, [modelGroups, displayModels.length, showAllProviders]);
 
-  // Model selection handler
-  const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+  // Model selection handler for dropdown
+  const handleModelSelectChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     onModelSelect(e.target.value);
   }, [onModelSelect]);
   
@@ -400,7 +499,7 @@ const ModelPreview = memo(({
       <div className="relative">
         <select
           value={selectedModel}
-          onChange={handleModelChange}
+          onChange={handleModelSelectChange}
           className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm transition-all duration-300"
         >
           {dropdownOptions}
@@ -467,6 +566,7 @@ const SettingsTab = memo(({
   loading, 
   providers, 
   models, 
+  allModels,
   personas,
   provider, 
   model, 
@@ -486,11 +586,27 @@ const SettingsTab = memo(({
   setTemperature,
   setAudioResponse,
   handleSaveDefaults,
-  selectedProviderName
+  selectedProviderName,
+  pluginsEnabled,
+  setPluginsEnabled,
+  webSearchEnabled,
+  setWebSearchEnabled,
+  codeInterpreterEnabled,
+  setCodeInterpreterEnabled,
+  imageGeneratorEnabled,
+  setImageGeneratorEnabled,
+  fileAnalysisEnabled,
+  setFileAnalysisEnabled,
+  apiKeys,
+  setApiKeys,
+  setShowApiKeyModal,
+  setApiKeyProvider,
+  setApiKey
 }: {
   loading: boolean;
   providers: Provider[];
   models: Model[];
+  allModels: {[providerId: string]: Model[]};
   personas: string[];
   provider: string;
   model: string;
@@ -511,6 +627,21 @@ const SettingsTab = memo(({
   setAudioResponse: (enabled: boolean) => void;
   handleSaveDefaults: () => void;
   selectedProviderName: string;
+  pluginsEnabled: boolean;
+  setPluginsEnabled: (enabled: boolean) => void;
+  webSearchEnabled: boolean;
+  setWebSearchEnabled: (enabled: boolean) => void;
+  codeInterpreterEnabled: boolean;
+  setCodeInterpreterEnabled: (enabled: boolean) => void;
+  imageGeneratorEnabled: boolean;
+  setImageGeneratorEnabled: (enabled: boolean) => void;
+  fileAnalysisEnabled: boolean;
+  setFileAnalysisEnabled: (enabled: boolean) => void;
+  apiKeys: {[key: string]: string};
+  setApiKeys: (keys: {[key: string]: string}) => void;
+  setShowApiKeyModal: (show: boolean) => void;
+  setApiKeyProvider: (provider: string) => void;
+  setApiKey: (key: string) => void;
 }) => {
   // Memoize calculated values
   const calculatedTokens = useMemo(() => 
@@ -563,31 +694,31 @@ const SettingsTab = memo(({
     );
   }
   
-  return (
-    <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
+      return (
+        <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
         {/* Theme toggle with animation */}
-        <button
-          onClick={toggleTheme}
+            <button
+              onClick={toggleTheme}
           className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors duration-300 hover:shadow-md"
-          aria-label="Toggle theme"
-        >
+              aria-label="Toggle theme"
+            >
           {theme === 'dark' 
             ? <Moon className="w-5 h-5 text-yellow-500 animate-fadeIn" /> 
             : <Sun className="w-5 h-5 text-yellow-500 animate-fadeIn" />
           }
-        </button>
-      </div>
+            </button>
+          </div>
 
-      {/* Mode */}
-      <SettingsControl
-        loading={loading}
-        label="Chat Mode"
-        value={mode}
-        options={['Chat', 'RAG', 'Image']}
-        onChange={setMode}
-      />
+              {/* Mode */}
+              <SettingsControl
+                loading={loading}
+                label="Chat Mode"
+                value={mode}
+                options={['Chat', 'RAG', 'Image']}
+                onChange={setMode}
+              />
 
       {/* Provider with brand colors */}
       <div className="mb-4">
@@ -596,7 +727,7 @@ const SettingsTab = memo(({
         </div>
         <div className="relative">
           <select
-            value={provider}
+                value={provider}
             onChange={(e) => handleProviderChange(e.target.value)}
             className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm"
           >
@@ -611,113 +742,115 @@ const SettingsTab = memo(({
       {/* Model Preview with enhanced UI */}
       <ModelPreview 
         models={models}
+        allModels={allModels}
         provider={provider}
         selectedModel={model}
         onModelSelect={setModel}
-        isLoading={loadingModels}
-      />
+                isLoading={loadingModels}
+        showAllProviders={true}
+              />
 
-      {/* Persona */}
-      <SettingsControl
-        loading={loading}
-        label="Persona"
-        value={persona}
-        options={personas}
-        onChange={setPersona}
-      />
+              {/* Persona */}
+              <SettingsControl
+                loading={loading}
+                label="Persona"
+                value={persona}
+                options={personas}
+                onChange={setPersona}
+              />
 
-      {/* Max Tokens */}
+              {/* Max Tokens */}
       <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-        <div className="flex justify-between items-center mb-1.5">
-          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
-          <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
             {calculatedTokens}
-          </span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={maxTokens}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={maxTokens}
           onChange={handleTokenChange}
-          className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
-        />
-        <div className="flex justify-between mt-1.5">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
-          <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
-        </div>
+                  className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
+              </div>
 
-        {/* Quick Token Presets */}
+              {/* Quick Token Presets */}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
+                <button
             onClick={() => setTokenPreset(2000)}
-            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
-          >
-            2000
-          </button>
-          <button
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
+                >
+                  2000
+                </button>
+                <button
             onClick={() => setTokenPreset(4000)}
-            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
-          >
-            4000
-          </button>
-          <button
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
+                >
+                  4000
+                </button>
+                <button
             onClick={() => setTokenPreset(8000)}
-            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
-          >
-            8000
-          </button>
+                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
+                >
+                  8000
+                </button>
         </div>
-      </div>
+              </div>
 
-      {/* Temperature */}
+              {/* Temperature */}
       <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-        <div className="flex justify-between items-center mb-1.5">
-          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
-          <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
             {temperatureValue}
-          </span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={temperature}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={temperature}
           onChange={handleTemperatureChange}
-          className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
-        />
-        <div className="flex justify-between mt-1.5">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
-          <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
-        </div>
-      </div>
+                  className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
+                </div>
+              </div>
 
-      {/* Audio Response */}
+              {/* Audio Response */}
       <div className="mb-6 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
-          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-            <button
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
+                  <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+                    <button
               onClick={() => handleAudioToggle(false)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
-                ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                : 'text-gray-500 dark:text-gray-400'
-                }`}
-            >
-              Off
-            </button>
-            <button
+                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
+                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                        : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                    >
+                      Off
+                    </button>
+                    <button
               onClick={() => handleAudioToggle(true)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
-                ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                : 'text-gray-500 dark:text-gray-400'
-                }`}
-            >
-              On
-            </button>
-          </div>
-        </div>
-      </div>
+                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
+                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                        : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+              </div>
 
       {/* Plugin Support */}
       <div className="mb-4">
@@ -827,58 +960,58 @@ const SettingsTab = memo(({
           >
             + Add API key
           </button>
-        </div>
-      </div>
+                    </div>
+                  </div>
 
-      {/* Save as Defaults Button */}
-      <div className="mb-4 pt-2">
-        <button
-          onClick={handleSaveDefaults}
-          className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
-        >
-          <Save className="w-4 h-4 mr-2" />
-          Save as Default Settings
-        </button>
-      </div>
+              {/* Save as Defaults Button */}
+              <div className="mb-4 pt-2">
+                <button
+                  onClick={handleSaveDefaults}
+                  className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save as Default Settings
+                </button>
+              </div>
 
-      {/* Provider Link */}
+              {/* Provider Link */}
       {providerWebsite && (
-        <div className="mt-5 mb-3 text-center">
-          <a
+                <div className="mt-5 mb-3 text-center">
+                  <a
             href={providerWebsite}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
-          >
-            View {selectedProviderName} provider details
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
+                  >
+                    View {selectedProviderName} provider details
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+          )}
         </div>
-      )}
-    </div>
-  );
+      );
 });
 
 SettingsTab.displayName = 'SettingsTab';
 
 const DocsTab = memo(() => {
-  return (
-    <div className="p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
-      </div>
-      <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
-        <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
-        <p>No documents uploaded yet</p>
-        <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Document
-        </button>
-      </div>
-    </div>
-  );
+      return (
+        <div className="p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
+          </div>
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
+            <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+            <p>No documents uploaded yet</p>
+            <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Document
+            </button>
+          </div>
+        </div>
+      );
 });
 
 DocsTab.displayName = 'DocsTab';
@@ -894,57 +1027,57 @@ const ChatsTab = memo(({
   onChatSelect: (id: string) => void;
   onDeleteChat: (id: string) => void;
 }) => {
-  return (
-    <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-      <div className="p-4">
-        {/* Chat List */}
-        <div className="space-y-2">
-          {filteredChats.length > 0 ? (
-            filteredChats.map(chat => (
-              <button
-                key={chat.chat_id}
-                onClick={() => onChatSelect(chat.chat_id)}
-                className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start group transition-colors duration-200 ${
-                  chat.chat_id === currentChatId
-                    ? 'bg-blue-100 dark:bg-blue-900/20 border-blue-500 dark:border-blue-800'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center mb-1">
-                    <span className={`text-sm font-medium truncate ${
+      return (
+        <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+          <div className="p-4">
+            {/* Chat List */}
+            <div className="space-y-2">
+              {filteredChats.length > 0 ? (
+                filteredChats.map(chat => (
+                  <button
+                    key={chat.chat_id}
+                    onClick={() => onChatSelect(chat.chat_id)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start group transition-colors duration-200 ${
                       chat.chat_id === currentChatId
-                        ? 'text-blue-700 dark:text-blue-400'
-                        : 'text-gray-800 dark:text-gray-200'
-                    }`}>
-                      {chat.title || 'Untitled Chat'}
-                    </span>
-                  </div>
-                  <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
-                    <span className="truncate">
-                      {new Date(chat.updated_at).toLocaleDateString()}
-                    </span>
-                    <span className="mx-1">·</span>
-                    <span className="truncate">{chat.provider}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteChat(chat.chat_id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-opacity duration-200"
-                  aria-label="Delete chat"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </button>
-            ))
-          ) : null}
+                        ? 'bg-blue-100 dark:bg-blue-900/20 border-blue-500 dark:border-blue-800'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center mb-1">
+                        <span className={`text-sm font-medium truncate ${
+                          chat.chat_id === currentChatId
+                            ? 'text-blue-700 dark:text-blue-400'
+                            : 'text-gray-800 dark:text-gray-200'
+                        }`}>
+                          {chat.title || 'Untitled Chat'}
+                        </span>
+                      </div>
+                      <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
+                        <span className="truncate">
+                          {new Date(chat.updated_at).toLocaleDateString()}
+                        </span>
+                        <span className="mx-1">·</span>
+                        <span className="truncate">{chat.provider}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteChat(chat.chat_id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-opacity duration-200"
+                      aria-label="Delete chat"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </button>
+                ))
+              ) : null}
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  );
+      );
 });
 
 ChatsTab.displayName = 'ChatsTab';
@@ -1073,7 +1206,7 @@ const ButtonGrid = memo(({
 
 ButtonGrid.displayName = 'ButtonGrid';
 
-export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat }: SidebarProps) {
+export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat, onAudioResponseChange }: SidebarProps) {
   // State
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
@@ -1135,10 +1268,12 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   const { 
     providers, 
     models, 
+    allModels, 
     personas, 
     loading, 
     loadingModels, 
-    fetchModelsForProvider 
+    fetchModelsForProvider,
+    switchToProvider
   } = useApiData();
   
   // Modal states
@@ -1193,28 +1328,6 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   // Ensure chats is always an array
   const chatsArray = useMemo(() => Array.isArray(chats) ? chats : [], [chats]);
 
-  // Update models when provider changes
-  useEffect(() => {
-    // Skip if provider is changing
-    if (providerChangingRef.current) return;
-    
-    const updateModels = async () => {
-      providerChangingRef.current = true;
-      const modelData = await fetchModelsForProvider(provider);
-      
-      // Keep current model if compatible, otherwise use first model
-      if (modelData.length > 0) {
-        const currentModelCompatible = modelData.some(m => m.id === model);
-        if (!currentModelCompatible) {
-          updateSetting('model', modelData[0].id);
-        }
-      }
-      providerChangingRef.current = false;
-    };
-    
-    updateModels();
-  }, [provider, model, fetchModelsForProvider]);
-
   // Get provider/model names - memoized
   const selectedProviderName = useMemo(() => 
     providers.find(p => p.id === provider)?.name || '',
@@ -1237,14 +1350,14 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   // Filtered chats for load/delete modals - memoized
   const filteredLoadChats = useMemo(() => 
     loadSearch
-      ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
+    ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
       : chats,
     [chats, loadSearch]
   );
   
   const filteredDeleteChats = useMemo(() => 
     deleteSearch
-      ? chats.filter(chat => chat.title.toLowerCase().includes(deleteSearch.toLowerCase()))
+    ? chats.filter(chat => chat.title.toLowerCase().includes(deleteSearch.toLowerCase()))
       : chats,
     [chats, deleteSearch]
   );
@@ -1254,10 +1367,42 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     setSettings(prev => ({ ...prev, [key]: value }));
   }, [setSettings]);
 
+  // Update models when provider changes
+  useEffect(() => {
+    // Skip if provider is changing
+    if (providerChangingRef.current) return;
+    
+    // This effect is now simplified since we handle model switching in handleProviderChange
+    // The main purpose now is just to update the model selection if needed
+    const currentModelData = models.find(m => m.id === model);
+    
+    // If the model exists in the current provider's models, we're good
+    if (currentModelData) return;
+    
+    // If the model doesn't exist, select a default or first model from the current provider
+    if (models.length > 0) {
+      const defaultModel = models.find(m => m.default);
+      updateSetting('model', defaultModel?.id || models[0].id);
+    }
+  }, [provider, model, models, updateSetting]);
+
   // Handle provider change
   const handleProviderChange = useCallback((newProviderId: string) => {
     updateSetting('provider', newProviderId);
-  }, [updateSetting]);
+    
+    // Use cached models if available, otherwise fetch them
+    const providerModels = switchToProvider(newProviderId);
+    
+    // If we have models for this provider, ensure the model is compatible
+    if (providerModels && providerModels.length > 0) {
+      const currentModelCompatible = providerModels.some(m => m.id === model);
+      if (!currentModelCompatible) {
+        // Find a default model or use the first one
+        const defaultModel = providerModels.find(m => m.default);
+        updateSetting('model', defaultModel?.id || providerModels[0].id);
+      }
+    }
+  }, [updateSetting, switchToProvider, model]);
   
   // Handle model change
   const handleModelChange = useCallback((newModel: string) => {
@@ -1356,6 +1501,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
             loading={loading}
             providers={providers}
             models={models}
+            allModels={allModels}
             personas={personas}
             provider={provider}
             model={model}
@@ -1376,6 +1522,21 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
             setAudioResponse={setAudioResponse}
             handleSaveDefaults={handleSaveDefaults}
             selectedProviderName={selectedProviderName}
+            pluginsEnabled={pluginsEnabled}
+            setPluginsEnabled={setPluginsEnabled}
+            webSearchEnabled={webSearchEnabled}
+            setWebSearchEnabled={setWebSearchEnabled}
+            codeInterpreterEnabled={codeInterpreterEnabled}
+            setCodeInterpreterEnabled={setCodeInterpreterEnabled}
+            imageGeneratorEnabled={imageGeneratorEnabled}
+            setImageGeneratorEnabled={setImageGeneratorEnabled}
+            fileAnalysisEnabled={fileAnalysisEnabled}
+            setFileAnalysisEnabled={setFileAnalysisEnabled}
+            apiKeys={apiKeys}
+            setApiKeys={setApiKeys}
+            setShowApiKeyModal={setShowApiKeyModal}
+            setApiKeyProvider={setApiKeyProvider}
+            setApiKey={setApiKey}
           />
         );
       case 'docs':
@@ -1416,11 +1577,33 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     setAudioResponse,
     handleSaveDefaults,
     selectedProviderName,
+    pluginsEnabled,
+    setPluginsEnabled,
+    webSearchEnabled,
+    setWebSearchEnabled,
+    codeInterpreterEnabled,
+    setCodeInterpreterEnabled,
+    imageGeneratorEnabled,
+    setImageGeneratorEnabled,
+    fileAnalysisEnabled,
+    setFileAnalysisEnabled,
+    apiKeys,
+    setApiKeys,
+    setShowApiKeyModal,
+    setApiKeyProvider,
+    setApiKey,
     filteredChats,
     currentChatId,
     onChatSelect,
     onDeleteChat
   ]);
+
+  // Add effect to notify parent component when audioResponse changes
+  useEffect(() => {
+    if (onAudioResponseChange) {
+      onAudioResponseChange(audioResponse);
+    }
+  }, [audioResponse, onAudioResponseChange]);
 
   return (
     <>
@@ -1475,69 +1658,6 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                     <div className="flex justify-between mt-1.5">
                       <span className="text-xs text-gray-500 dark:text-gray-400">Short Memory</span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">Long Memory</span>
-                    </div>
-                  </div>
-                  {/* Plugin Support */}
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Plugins</label>
-                      <div className="relative inline-block w-10 align-middle select-none">
-                        <input
-                          type="checkbox"
-                          name="toggle"
-                          id="toggle"
-                          className="sr-only"
-                          checked={pluginsEnabled}
-                          onChange={() => setPluginsEnabled(!pluginsEnabled)}
-                        />
-                        <label
-                          htmlFor="toggle"
-                          className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
-                          onClick={() => setPluginsEnabled(!pluginsEnabled)}
-                        >
-                          <span
-                            className={`block h-6 w-6 rounded-full bg-white shadow transform ${pluginsEnabled ? 'translate-x-4' : 'translate-x-0'} transition-transform duration-200 ease-in-out dark:bg-blue-500`}
-                          ></span>
-                        </label>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input 
-                          type="checkbox" 
-                          className="rounded text-blue-500" 
-                          checked={webSearchEnabled}
-                          onChange={() => setWebSearchEnabled(!webSearchEnabled)}
-                        />
-                        <span className="text-xs">Web Search</span>
-                      </div>
-                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input 
-                          type="checkbox" 
-                          className="rounded text-blue-500" 
-                          checked={codeInterpreterEnabled}
-                          onChange={() => setCodeInterpreterEnabled(!codeInterpreterEnabled)}
-                        />
-                        <span className="text-xs">Code Interpreter</span>
-                      </div>
-                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input 
-                          type="checkbox" 
-                          className="rounded text-blue-500" 
-                          checked={imageGeneratorEnabled}
-                          onChange={() => setImageGeneratorEnabled(!imageGeneratorEnabled)}
-                        />
-                        <span className="text-xs">Image Generator</span>
-                      </div>
-                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-                        <input 
-                          type="checkbox" 
-                          className="rounded text-blue-500" 
-                          checked={fileAnalysisEnabled}
-                          onChange={() => setFileAnalysisEnabled(!fileAnalysisEnabled)}
-                        />
-                        <span className="text-xs">File Analysis</span>
-                      </div>
                     </div>
                   </div>
                   {/* API Keys Management */}
@@ -1692,80 +1812,80 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
       {/* Load Modal */}
       {showLoadModal && (
         <Modal title="Load Conversation" onClose={() => setShowLoadModal(false)}>
-          <input
-            className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
-            placeholder="Search conversations..."
-            value={loadSearch}
-            onChange={e => setLoadSearch(e.target.value)}
-          />
-          <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
-            {filteredLoadChats.length === 0 ? (
-              <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
-            ) : (
-              filteredLoadChats.map(chat => (
-                <div
-                  key={chat.chat_id}
-                  className="py-2 px-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded transition-colors"
-                  onClick={() => { onChatSelect(chat.chat_id); setShowLoadModal(false); }}
-                >
-                  <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
-                </div>
-              ))
-            )}
-          </div>
+            <input
+              className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+              placeholder="Search conversations..."
+              value={loadSearch}
+              onChange={e => setLoadSearch(e.target.value)}
+            />
+            <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredLoadChats.length === 0 ? (
+                <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+              ) : (
+                filteredLoadChats.map(chat => (
+                  <div
+                    key={chat.chat_id}
+                    className="py-2 px-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded transition-colors"
+                    onClick={() => { onChatSelect(chat.chat_id); setShowLoadModal(false); }}
+                  >
+                    <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                  </div>
+                ))
+              )}
+            </div>
         </Modal>
       )}
       
       {/* Delete Modal */}
       {showDeleteModal && (
         <Modal title="Delete Conversation" onClose={() => setShowDeleteModal(false)}>
-          <input
-            className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
-            placeholder="Search conversations..."
-            value={deleteSearch}
-            onChange={e => setDeleteSearch(e.target.value)}
-          />
-          <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
-            {filteredDeleteChats.length === 0 ? (
-              <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
-            ) : (
-              filteredDeleteChats.map(chat => (
-                <div
-                  key={chat.chat_id}
-                  className="py-2 px-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
-                  onClick={() => { onDeleteChat(chat.chat_id); setShowDeleteModal(false); }}
-                >
-                  <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
-                </div>
-              ))
-            )}
-          </div>
+            <input
+              className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+              placeholder="Search conversations..."
+              value={deleteSearch}
+              onChange={e => setDeleteSearch(e.target.value)}
+            />
+            <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredDeleteChats.length === 0 ? (
+                <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+              ) : (
+                filteredDeleteChats.map(chat => (
+                  <div
+                    key={chat.chat_id}
+                    className="py-2 px-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
+                    onClick={() => { onDeleteChat(chat.chat_id); setShowDeleteModal(false); }}
+                  >
+                    <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                  </div>
+                ))
+              )}
+            </div>
         </Modal>
       )}
       
       {/* Export Modal */}
       {showExportModal && (
         <Modal title="Export Conversation" onClose={() => setShowExportModal(false)}>
-          <div className="flex flex-col space-y-2">
-            <button
+            <div className="flex flex-col space-y-2">
+              <button
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-              onClick={() => handleExportFormat('md')}
-            >
-              Export as Markdown
-            </button>
-            <button
+                onClick={() => handleExportFormat('md')}
+              >
+                Export as Markdown
+              </button>
+              <button
               className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-              onClick={() => handleExportFormat('pdf')}
-            >
-              Export as PDF
-            </button>
-            <button
+                onClick={() => handleExportFormat('pdf')}
+              >
+                Export as PDF
+              </button>
+              <button
               className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
-              onClick={() => handleExportFormat('json')}
-            >
-              Export as JSON
-            </button>
-          </div>
+                onClick={() => handleExportFormat('json')}
+              >
+                Export as JSON
+              </button>
+            </div>
         </Modal>
       )}
 

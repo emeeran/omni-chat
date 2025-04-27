@@ -3,19 +3,19 @@ import { X, Loader2, ChevronDown } from 'lucide-react';
 import { Provider, Model, getProviders, getModels } from '@/lib/api';
 
 interface RetryDialogProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onRetry: (provider: string, model: string) => void;
-  currentProvider: string;
-  currentModel: string;
+  currentProvider?: string;
+  currentModel?: string;
 }
 
 export default function RetryDialog({
-  isOpen,
+  isOpen = true,
   onClose,
   onRetry,
-  currentProvider,
-  currentModel
+  currentProvider = 'openai',
+  currentModel = 'gpt-4o'
 }: RetryDialogProps) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);

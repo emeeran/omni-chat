@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, send_from_directory
 from api_providers.provider_factory import get_provider, get_available_providers
 from database.chat_store import ChatStore
 from models.chat import Chat, Message
@@ -12,6 +12,8 @@ import json
 from functools import wraps
 from typing import Dict, List, Any, Optional, Callable
 import copy
+from datetime import datetime, timedelta
+from gtts import gTTS  # Google Text-to-Speech
 
 # Configure logging with a more efficient format
 logging.basicConfig(
@@ -28,6 +30,22 @@ document_processor = DocumentProcessor()
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'md'}
 UPLOAD_FOLDER = 'data/uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Create a directory for audio files
+AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'static', 'audio')
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# Cleanup old audio files periodically (files older than 1 hour)
+def cleanup_old_audio_files():
+    now = datetime.now()
+    for filename in os.listdir(AUDIO_DIR):
+        file_path = os.path.join(AUDIO_DIR, filename)
+        file_creation_time = datetime.fromtimestamp(os.path.getctime(file_path))
+        if now - file_creation_time > timedelta(hours=1):
+            try:
+                os.remove(file_path)
+            except:
+                pass
 
 # Request rate limiter - simple in-memory implementation
 class RateLimiter:
@@ -1065,3 +1083,49 @@ def get_metrics():
         "uptime_seconds": int(time.time() - current_app.start_time)
     }
     return jsonify(stats)
+
+@api_routes.route('/text-to-speech', methods=['POST'])
+@api_error_handler
+def text_to_speech():
+    """Generate speech from text using Google TTS"""
+    data = request.json
+    
+    if not data or 'text' not in data:
+        return jsonify({'error': 'No text provided'}), 400
+    
+    text = data.get('text', '')
+    voice = data.get('voice', 'en')
+    
+    if not text.strip():
+        return jsonify({'error': 'Empty text provided'}), 400
+    
+    # Clean up old audio files
+    cleanup_old_audio_files()
+    
+    try:
+        # Generate a unique filename
+        filename = f"{uuid.uuid4()}.mp3"
+        file_path = os.path.join(AUDIO_DIR, filename)
+        
+        # Generate speech using Google TTS
+        tts = gTTS(text=text, lang=voice[:2])  # Extract language code (e.g. 'en' from 'en-US')
+        tts.save(file_path)
+        
+        # Return the URL to the audio file
+        audio_url = f"/api/static/audio/{filename}"
+        
+        return jsonify({
+            'success': True,
+            'audioUrl': audio_url,
+            'duration': len(text.split()) / 3  # Rough estimate of duration in seconds
+        })
+    
+    except Exception as e:
+        logger.error(f"Error generating speech: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Serve static audio files
+@api_routes.route('/static/audio/<filename>', methods=['GET'])
+def serve_audio(filename):
+    """Serve generated audio files"""
+    return send_from_directory(AUDIO_DIR, filename)
