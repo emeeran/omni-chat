@@ -21,7 +21,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
-  const PAIRS_PER_PAGE = 3;
+  const PAIRS_PER_PAGE = 1;
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -285,13 +285,39 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const totalPages = Math.ceil(pairs.length / PAIRS_PER_PAGE);
   const paginatedPairs = pairs.slice(page * PAIRS_PER_PAGE, (page + 1) * PAIRS_PER_PAGE);
 
-  // Reset page to 0 when chat changes
+  // Robust pagination: always keep page in bounds, jump to last page on new pair, and reset on new chat
+  const prevPairsLengthRef = useRef(pairs.length);
   useEffect(() => {
-    setPage(0);
-  }, [chat.chat_id]);
+    let newPage = page;
+
+    // If chat changes, reset to first page
+    if (chat.chat_id && prevPairsLengthRef.current === 0 && pairs.length > 0) {
+      newPage = 0;
+    }
+
+    // If pairs increased, jump to last page
+    if (pairs.length > prevPairsLengthRef.current) {
+      newPage = Math.max(0, totalPages - 1);
+    }
+
+    // Clamp page to valid range
+    if (newPage > totalPages - 1) {
+      newPage = Math.max(0, totalPages - 1);
+    }
+    if (newPage < 0) {
+      newPage = 0;
+    }
+
+    if (newPage !== page) {
+      setPage(newPage);
+    }
+
+    prevPairsLengthRef.current = pairs.length;
+    // eslint-disable-next-line
+  }, [pairs.length, totalPages, page, chat.chat_id]);
 
   return (
-    <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
+    <div className="relative flex flex-col h-full min-h-0 bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
         <div className="bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-sm fixed top-0 right-0 max-w-md z-50 shadow-lg rounded-l-md m-4 flex items-center justify-between backdrop-blur-sm">
           <span>Using fallback mode - Backend API is unavailable</span>
@@ -305,38 +331,52 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
       )}
 
       {/* Chat history paginated container */}
-      <div className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto flex flex-col items-center justify-center">
+      <div className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto flex flex-col">
         {pairs.length === 0 ? (
           <div className="text-gray-400 text-sm italic flex items-center justify-center h-full">No messages yet.</div>
         ) : (
-          <div className="w-full max-w-2xl">
+          <div className="w-full max-w-2xl space-y-8">
             {paginatedPairs.map((pair, idx) => (
-              <div key={pair.user?.message_id || idx} className="mb-8">
-                <div className="font-bold text-blue-700 dark:text-blue-300 mb-1">User:</div>
-                <div className="mb-2 text-gray-800 dark:text-gray-100 whitespace-pre-line">
-                  <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.user?.content || ''}</ReactMarkdown>
+              <div key={pair.user?.message_id || idx} className="flex flex-col gap-2 bg-white dark:bg-gray-800/70 rounded-2xl shadow-md p-4">
+                {/* User message */}
+                <div className="flex items-start justify-end gap-2">
+                  <div className="flex flex-col items-end">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs text-blue-600 font-semibold">User</span>
+                      <span className="bg-gradient-to-br from-blue-400 to-indigo-400 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">U</span>
+                    </div>
+                    <div className="bg-blue-100 dark:bg-blue-900/40 text-gray-900 dark:text-blue-100 rounded-xl rounded-br-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                      <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.user?.content || ''}</ReactMarkdown>
+                    </div>
+                  </div>
                 </div>
-                <div className="font-bold text-purple-700 dark:text-purple-300 mb-1">Assistant:</div>
-                <div className="mb-2 text-gray-800 dark:text-gray-100 whitespace-pre-line">
-                  {pair.assistant ? (
-                    <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.assistant.content}</ReactMarkdown>
-                  ) : (
-                    <span className="italic text-gray-400">...</span>
-                  )}
+                {/* Assistant message */}
+                <div className="flex items-start justify-start gap-2">
+                  <span className="bg-gradient-to-br from-green-400 to-emerald-500 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">A</span>
+                  <div className="flex flex-col items-start">
+                    <span className="text-xs text-purple-600 dark:text-purple-300 font-semibold mb-1">Assistant</span>
+                    <div className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-xl rounded-bl-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                      {pair.assistant ? (
+                        <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.assistant.content}</ReactMarkdown>
+                      ) : (
+                        <span className="italic text-gray-400">...</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-center my-4">
-                  <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
-                  <span className="mx-4 text-xs text-gray-500 dark:text-gray-400 font-semibold tracking-wider">
+                {/* Timestamp */}
+                <div className="flex justify-center mt-2">
+                  <span className="block text-xs text-gray-400 font-mono select-none">
                     {pair.assistant
-                      ? new Date(pair.assistant.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                      ? `-------------------time-stamp ${new Date(pair.assistant.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
                       : pair.user
-                        ? new Date(pair.user.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                        ? `-------------------time-stamp ${new Date(pair.user.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
                         : ''}
                   </span>
-                  <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
                 </div>
               </div>
             ))}
+
             {/* Pagination controls */}
             {totalPages > 1 && (
               <div className="flex justify-between mt-6">
@@ -345,15 +385,15 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
                 >
-                  &lt;&lt;&lt; Previous Page
+                  {'<<<Previsouse Page'}
                 </button>
-                <span className="text-xs text-gray-500 dark:text-gray-400 self-center">Page {page + 1} of {totalPages}</span>
+                <span className="flex-1 text-center text-xs text-gray-500 dark:text-gray-400 self-center" style={{letterSpacing: '0.1em'}}></span>
                 <button
                   className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
                 >
-                  Next Page &gt;&gt;&gt;
+                  {'Next Page >>>>>>'}
                 </button>
               </div>
             )}
