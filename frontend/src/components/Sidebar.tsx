@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model } from '@/lib/api';
 import { SidebarHeader } from './SidebarHeader';
+import { saveAs } from 'file-saver';
 
 // Define the structure for default settings
 interface DefaultSettings {
@@ -19,12 +20,14 @@ interface DefaultSettings {
 
 type SidebarProps = {
   chats: ChatSummary[];
+  currentChatId: string;
+  selectedModel: string;
   onNewChat: () => void;
   onChatSelect: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
   onSaveChat: (chatId: string) => void;
-  onExportChat: (chatId: string) => void;
-  onRetryChat: (chatId: string) => void;
+  onExportChat: (chatId: string, format: 'md' | 'pdf' | 'json') => void;
+  onRetryChat: (chatId: string, model: string) => void;
 };
 
 // Extract ChatList to a separate memoized component to prevent re-renders
@@ -135,7 +138,7 @@ const SettingsControl = memo(({
 
 SettingsControl.displayName = 'SettingsControl';
 
-export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat }: SidebarProps) {
+export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -182,13 +185,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   const [personas, setPersonas] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingModels, setLoadingModels] = useState(false);
-
-  const pathname = usePathname();
-
-  // Extract the current chat ID from the path - memoize this
-  const currentChatId = pathname.startsWith('/chat/')
-    ? pathname.split('/').pop() || ''
-    : '';
 
   // Close drawer when collapsed
   useEffect(() => {
@@ -388,34 +384,6 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
     // The model will be updated automatically by the useEffect
   }, []);
 
-  // Handle retry button click - resubmit the last message
-  const handleRetry = useCallback(() => {
-    if (currentChatId) onRetryChat(currentChatId);
-  }, [currentChatId, onRetryChat]);
-
-  // Handle save button click
-  const handleSave = useCallback(() => {
-    if (currentChatId) onSaveChat(currentChatId);
-  }, [currentChatId, onSaveChat]);
-
-  // Handle load button click
-  const handleLoad = useCallback(() => {
-    // This could open a modal or dialog to select a chat to load
-    alert('Load chat functionality will be implemented here');
-  }, []);
-
-  // Handle delete button click
-  const handleDelete = useCallback(() => {
-    if (currentChatId && confirm('Are you sure you want to delete this chat?')) {
-      onDeleteChat(currentChatId);
-    }
-  }, [currentChatId, onDeleteChat]);
-
-  // Handle export button click
-  const handleExport = useCallback(() => {
-    if (currentChatId) onExportChat(currentChatId);
-  }, [currentChatId, onExportChat]);
-
   // Handle voice input button click
   const handleVoiceInput = useCallback(() => {
     // Voice input functionality
@@ -464,12 +432,44 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
   }, [provider, model, persona, maxTokens]);
 
   const [showLoadModal, setShowLoadModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [loadSearch, setLoadSearch] = useState('');
+  const [deleteSearch, setDeleteSearch] = useState('');
+  const [exportFormat, setExportFormat] = useState<'md' | 'pdf' | 'json'>('md');
 
   // Filtered chats for load modal
   const filteredLoadChats = loadSearch
     ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
     : chats;
+  // Filtered chats for delete modal
+  const filteredDeleteChats = deleteSearch
+    ? chats.filter(chat => chat.title.toLowerCase().includes(deleteSearch.toLowerCase()))
+    : chats;
+
+  // Handlers for button grid
+  const handleRetryClick = () => {
+    if (currentChatId && selectedModel) onRetryChat(currentChatId, selectedModel);
+  };
+  const handleNewClick = () => {
+    onNewChat();
+  };
+  const handleSaveClick = () => {
+    if (currentChatId) onSaveChat(currentChatId);
+  };
+  const handleLoadClick = () => {
+    setShowLoadModal(true);
+  };
+  const handleDeleteClick = () => {
+    setShowDeleteModal(true);
+  };
+  const handleExportClick = () => {
+    setShowExportModal(true);
+  };
+  const handleExportFormat = (format: 'md' | 'pdf' | 'json') => {
+    if (currentChatId) onExportChat(currentChatId, format);
+    setShowExportModal(false);
+  };
 
   const renderTab = useCallback(() => {
     if (activeTab === 'settings') {
@@ -918,37 +918,37 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
               <div className="grid grid-cols-3 gap-2">
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={handleRetry}
+                  onClick={handleRetryClick}
                 >
                   Retry
                 </button>
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={onNewChat}
+                  onClick={handleNewClick}
                 >
                   New
                 </button>
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={handleSave}
+                  onClick={handleSaveClick}
                 >
                   Save
                 </button>
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={() => setShowLoadModal(true)}
+                  onClick={handleLoadClick}
                 >
                   Load
                 </button>
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={handleDelete}
+                  onClick={handleDeleteClick}
                 >
                   Delete
                 </button>
                 <button
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={handleExport}
+                  onClick={handleExportClick}
                 >
                   Export
                 </button>
@@ -992,6 +992,79 @@ export default function Sidebar({ chats, onNewChat, onChatSelect, onDeleteChat, 
                 <button
                   className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
                   onClick={() => setShowLoadModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Delete Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md">
+              <h2 className="text-lg font-bold mb-2">Delete Conversation</h2>
+              <input
+                className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+                placeholder="Search conversations..."
+                value={deleteSearch}
+                onChange={e => setDeleteSearch(e.target.value)}
+              />
+              <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredDeleteChats.length === 0 ? (
+                  <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+                ) : (
+                  filteredDeleteChats.map(chat => (
+                    <div
+                      key={chat.chat_id}
+                      className="py-2 px-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
+                      onClick={() => { onDeleteChat(chat.chat_id); setShowDeleteModal(false); }}
+                    >
+                      <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                  onClick={() => setShowDeleteModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Export Modal */}
+        {showExportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-xs">
+              <h2 className="text-lg font-bold mb-4">Export Conversation</h2>
+              <div className="flex flex-col space-y-2">
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  onClick={() => handleExportFormat('md')}
+                >
+                  Export as Markdown
+                </button>
+                <button
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  onClick={() => handleExportFormat('pdf')}
+                >
+                  Export as PDF
+                </button>
+                <button
+                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                  onClick={() => handleExportFormat('json')}
+                >
+                  Export as JSON
+                </button>
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                  onClick={() => setShowExportModal(false)}
                 >
                   Close
                 </button>

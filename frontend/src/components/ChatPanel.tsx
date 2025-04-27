@@ -20,6 +20,8 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(0);
+  const PAIRS_PER_PAGE = 3;
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -268,6 +270,26 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [chat, onUpdateChat]);
 
+  // Group messages into user/assistant pairs
+  const pairs = [];
+  for (let i = 0; i < chat.messages.length; i++) {
+    if (chat.messages[i].role === 'user') {
+      const userMsg = chat.messages[i];
+      const assistantMsg = chat.messages[i + 1] && chat.messages[i + 1].role === 'assistant' ? chat.messages[i + 1] : null;
+      pairs.push({ user: userMsg, assistant: assistantMsg });
+      if (assistantMsg) i++; // skip assistant in next loop
+    }
+  }
+
+  // Pagination logic
+  const totalPages = Math.ceil(pairs.length / PAIRS_PER_PAGE);
+  const paginatedPairs = pairs.slice(page * PAIRS_PER_PAGE, (page + 1) * PAIRS_PER_PAGE);
+
+  // Reset page to 0 when chat changes
+  useEffect(() => {
+    setPage(0);
+  }, [chat.chat_id]);
+
   return (
     <div className="relative flex flex-col h-full bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
@@ -282,31 +304,60 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
         </div>
       )}
 
-      {/* Chat history markdown container fills available space */}
-      <div
-        ref={chatHistoryRef}
-        className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto"
-      >
-        {chat.messages.length === 0 ? (
+      {/* Chat history paginated container */}
+      <div className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto flex flex-col items-center justify-center">
+        {pairs.length === 0 ? (
           <div className="text-gray-400 text-sm italic flex items-center justify-center h-full">No messages yet.</div>
         ) : (
-          chat.messages.map((msg, idx) => (
-            <React.Fragment key={msg.message_id || idx}>
-              <div className="mb-2 last:mb-0">
-                <span className="font-semibold text-xs text-blue-600 dark:text-blue-400 mr-2">{msg.role === 'user' ? 'You' : 'AI'}:</span>
-                <ReactMarkdown className="inline-block align-middle prose dark:prose-invert prose-sm max-w-none">{msg.content}</ReactMarkdown>
-              </div>
-              {idx < chat.messages.length - 1 && (
-                <div className="flex items-center my-2">
+          <div className="w-full max-w-2xl">
+            {paginatedPairs.map((pair, idx) => (
+              <div key={pair.user?.message_id || idx} className="mb-8">
+                <div className="font-bold text-blue-700 dark:text-blue-300 mb-1">User:</div>
+                <div className="mb-2 text-gray-800 dark:text-gray-100 whitespace-pre-line">
+                  <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.user?.content || ''}</ReactMarkdown>
+                </div>
+                <div className="font-bold text-purple-700 dark:text-purple-300 mb-1">Assistant:</div>
+                <div className="mb-2 text-gray-800 dark:text-gray-100 whitespace-pre-line">
+                  {pair.assistant ? (
+                    <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.assistant.content}</ReactMarkdown>
+                  ) : (
+                    <span className="italic text-gray-400">...</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-center my-4">
                   <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
-                  <span className="mx-3 text-xs text-gray-400 select-none">
-                    {new Date(chat.messages[idx + 1].created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                  <span className="mx-4 text-xs text-gray-500 dark:text-gray-400 font-semibold tracking-wider">
+                    {pair.assistant
+                      ? new Date(pair.assistant.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                      : pair.user
+                        ? new Date(pair.user.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                        : ''}
                   </span>
                   <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
                 </div>
-              )}
-            </React.Fragment>
-          ))
+              </div>
+            ))}
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex justify-between mt-6">
+                <button
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  &lt;&lt;&lt; Previous Page
+                </button>
+                <span className="text-xs text-gray-500 dark:text-gray-400 self-center">Page {page + 1} of {totalPages}</span>
+                <button
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next Page &gt;&gt;&gt;
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
