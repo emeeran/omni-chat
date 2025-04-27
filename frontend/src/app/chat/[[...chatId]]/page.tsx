@@ -4,10 +4,23 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import ChatPanel from '@/components/ChatPanel';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
-import { Chat, ChatSummary, getChat, getChats, deleteChat, exportChat, saveChat, retryChat } from '@/lib/api';
+import RetryDialog from '@/components/RetryDialog';
+import { Loader2, ChevronDown } from 'lucide-react';
+import { 
+  Chat, 
+  ChatSummary, 
+  getChat, 
+  getChats, 
+  deleteChat, 
+  exportChat, 
+  saveChat, 
+  retryChat, 
+  updateChatTitle,
+  getProviders,
+  getModels,
+  Provider,
+  Model
+} from '@/lib/api';
 import { saveAs } from 'file-saver';
 
 export default function ChatPage({ params }: { params: { chatId?: string[] } }) {
@@ -21,6 +34,7 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [pendingNewChat, setPendingNewChat] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
+  const [showRetryDialog, setShowRetryDialog] = useState(false);
 
   // Fetch chat list
   useEffect(() => {
@@ -88,32 +102,61 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
   }, [chatId, router]);
 
   const handleNewChat = async () => {
-    if (currentChat && currentChat.messages && currentChat.messages.length > 0) {
-      setShowSavePrompt(true);
-      setPendingNewChat(true);
-      return;
+    try {
+      // Reset any pending states
+      setShowSavePrompt(false);
+      setPendingNewChat(false);
+      
+      console.log('Creating new chat - about to navigate to /chat');
+      
+      // Create a new chat by navigating to the root chat path
+      // This will trigger the fetchOrCreateChat effect with no chatId
+      router.push('/chat');
+      
+      console.log('Navigation to /chat completed');
+    } catch (error) {
+      console.error('Error creating new chat:', error);
+      alert('Failed to create a new chat. Please try again.');
     }
-    router.push('/chat');
   };
 
   const handleSaveConversation = async () => {
     if (!saveFileName.trim()) return;
     if (currentChat) {
       try {
-        // Update local state with new title
+        // First update the title on the backend
+        const titleUpdateResult = await updateChatTitle(currentChat.chat_id, saveFileName.trim());
+        
+        if (!titleUpdateResult.success) {
+          throw new Error("Failed to update chat title");
+        }
+        
+        // Then save the chat
+        const saveResult = await saveChat(currentChat.chat_id);
+        
+        if (!saveResult.success) {
+          throw new Error("Failed to save chat");
+        }
+        
+        // Update local state
         setCurrentChat({ ...currentChat, title: saveFileName.trim() });
-        // TODO: If needed, call an API to update the chat title in the backend here
-        await saveChat(currentChat.chat_id);
+        
+        // Refresh the chat list
         const chatsList = await getChats();
         setChats(chatsList);
+        
+        // Close the dialog
         setShowSavePrompt(false);
         setSaveFileName('');
+        
+        // Navigate to new chat if needed
         if (pendingNewChat) {
           setPendingNewChat(false);
           router.push('/chat');
         }
       } catch (err) {
-        alert('Failed to save chat.');
+        console.error("Save conversation error:", err);
+        alert('Failed to save chat. Please try again.');
       }
     }
   };
@@ -159,25 +202,144 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
 
   // Add handler for saving a chat
   const handleSaveChat = async (id: string) => {
-    alert('Chat saved!');
+    try {
+      // Don't allow saving empty chats
+      if (currentChat && (!currentChat.messages || currentChat.messages.length === 0)) {
+        alert('There is nothing to save in this conversation yet.');
+        return;
+      }
+      
+      // Show the save prompt dialog
+      setShowSavePrompt(true);
+      
+      // If the chat already has a title, use it as a starting point
+      if (currentChat) {
+        setSaveFileName(currentChat.title || '');
+      }
+    } catch (err) {
+      console.error("Error opening save prompt:", err);
+      alert('Failed to prepare chat for saving.');
+    }
   };
 
   // Add handler for exporting a chat
-  const handleExportChat = async (id: string) => {
+  const handleExportChat = async (id: string, format: 'md' | 'pdf' | 'json') => {
     try {
       const data = await exportChat(id);
       if (!data) throw new Error('No data');
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      saveAs(blob, `chat-${id}.json`);
+      
+      if (format === 'json') {
+        // JSON export
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        saveAs(blob, `chat-${data.title || 'conversation'}.json`);
+      } else if (format === 'md') {
+        // Markdown export
+        let md = `# Conversation: ${data.title || 'Untitled'}\n\n`;
+        data.messages.forEach((msg) => {
+          if (msg.role === 'system') return; // Skip system messages in markdown export
+          md += `**${msg.role === 'user' ? 'You' : 'AI'}:**\n`;
+          md += `${msg.content}\n\n`;
+        });
+        const blob = new Blob([md], { type: 'text/markdown' });
+        saveAs(blob, `chat-${data.title || 'conversation'}.md`);
+      } else if (format === 'pdf') {
+        // PDF export
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+          alert('Please allow pop-ups to generate PDF');
+          return;
+        }
+        
+        let html = `
+          <html>
+          <head>
+            <title>Chat Export - ${data.title || 'Untitled'}</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+              h1 { color: #333; margin-bottom: 30px; }
+              .message { margin-bottom: 30px; }
+              .user { background-color: #f0f4f8; padding: 15px; border-radius: 8px; }
+              .assistant { background-color: #edf2ff; padding: 15px; border-radius: 8px; }
+              .role { font-weight: bold; margin-bottom: 8px; }
+              .content { white-space: pre-wrap; }
+              @media print {
+                body { font-size: 12pt; }
+                .message { page-break-inside: avoid; }
+              }
+            </style>
+            <script>
+              window.onload = function() {
+                setTimeout(() => {
+                  window.print();
+                  setTimeout(() => window.close(), 500);
+                }, 500);
+              }
+            </script>
+          </head>
+          <body>
+            <h1>Conversation: ${data.title || 'Untitled'}</h1>
+        `;
+        
+        data.messages.forEach((msg) => {
+          if (msg.role === 'system') return; // Skip system messages in PDF export
+          html += `
+            <div class="message ${msg.role}">
+              <div class="role">${msg.role === 'user' ? 'You' : 'AI'}:</div>
+              <div class="content">${msg.content}</div>
+            </div>
+          `;
+        });
+        
+        html += `
+          </body>
+          </html>
+        `;
+        
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+      }
     } catch (err) {
+      console.error('Export error:', err);
       alert('Failed to export chat.');
     }
   };
 
   // Add handler for retrying a chat
   const handleRetryChat = async (id: string) => {
-    // For now, just reload the page to retry
-    window.location.reload();
+    try {
+      // Show the retry dialog if there's a current chat
+      if (currentChat) {
+        setShowRetryDialog(true);
+      }
+    } catch (err) {
+      console.error('Error opening retry dialog:', err);
+      alert('Failed to prepare chat for retrying.');
+    }
+  };
+
+  // Add handler for executing the actual retry with selected provider and model
+  const executeRetry = async (provider: string, model: string) => {
+    try {
+      setIsLoading(true);
+      const result = await retryChat(currentChat!.chat_id, provider, model);
+      
+      if (result.success) {
+        // Reload the chat data
+        const updatedChat = await getChat(currentChat!.chat_id);
+        setCurrentChat(updatedChat);
+        // Refresh the chat list as well
+        const chatsList = await getChats();
+        setChats(chatsList);
+      } else {
+        alert('Failed to retry chat.');
+      }
+      setIsLoading(false);
+    } catch (err) {
+      setIsLoading(false);
+      console.error('Error retrying chat:', err);
+      alert('Failed to retry chat.');
+    }
   };
 
   const handleExportMarkdown = () => {
@@ -221,6 +383,8 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
     <div className="flex h-screen bg-gray-50 dark:bg-dark-900">
       <Sidebar
         chats={chats}
+        currentChatId={currentChat?.chat_id || ''}
+        selectedModel={currentChat?.model || ''}
         onNewChat={handleNewChat}
         onChatSelect={handleChatSelect}
         onDeleteChat={handleDeleteChat}
@@ -240,40 +404,45 @@ export default function ChatPage({ params }: { params: { chatId?: string[] } }) 
                     className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
                     placeholder="Enter file name..."
                     value={saveFileName}
-                    onChange={e => setSaveFileName(e.target.value)}
+                    onChange={(e) => setSaveFileName(e.target.value)}
+                    autoFocus
                   />
-                  <div className="flex flex-wrap justify-end space-x-2">
+                  <div className="flex justify-end space-x-2">
                     <button
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                      onClick={handleSaveConversation}
-                      disabled={!saveFileName.trim()}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-                      onClick={() => { setShowSavePrompt(false); setPendingNewChat(false); }}
+                      className="px-3 py-1.5 bg-gray-300 dark:bg-gray-700 rounded"
+                      onClick={() => {
+                        setShowSavePrompt(false);
+                        setSaveFileName('');
+                        setPendingNewChat(false);
+                      }}
                     >
                       Cancel
                     </button>
                     <button
-                      className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                      onClick={handleDeleteConversation}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded"
+                      onClick={handleSaveConversation}
                     >
-                      Delete
-                    </button>
-                    <button
-                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                      onClick={handleExportMarkdown}
-                    >
-                      Export as Markdown
+                      Save
                     </button>
                   </div>
                 </div>
               </div>
             )}
+            
+            {/* Retry Dialog */}
+            {showRetryDialog && currentChat && (
+              <RetryDialog
+                isOpen={showRetryDialog}
+                onClose={() => setShowRetryDialog(false)}
+                onRetry={executeRetry}
+                currentProvider={currentChat.provider}
+                currentModel={currentChat.model}
+              />
+            )}
+
             <ChatPanel
               chat={currentChat}
+              selectedMessage=""
               onUpdateChat={handleUpdateChat}
             />
           </>

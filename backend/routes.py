@@ -11,6 +11,7 @@ import time
 import json
 from functools import wraps
 from typing import Dict, List, Any, Optional, Callable
+import copy
 
 # Configure logging with a more efficient format
 logging.basicConfig(
@@ -825,6 +826,130 @@ def update_chat_title(chat_id):
     chat.title = new_title
     success = chat_store.update_chat(chat)
 
+    if not success:
+        return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
+
+    # Clear cached responses that might include this chat
+    global response_cache
+    response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+
+    return jsonify({"success": True})
+
+@api_routes.route('/chats/<chat_id>/retry', methods=['POST'])
+@rate_limit
+@api_error_handler
+def retry_chat(chat_id):
+    """Retry the last message in a chat with the same or different model"""
+    data = request.json
+    provider_id = data.get('provider')
+    model_id = data.get('model')
+    
+    # Get the chat
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        return jsonify({"error": f"Chat {chat_id} not found"}), 404
+    
+    # Make sure there are messages to retry
+    if not chat.messages:
+        return jsonify({"error": "No messages to retry"}), 400
+    
+    # Find the last user message
+    user_messages = [msg for msg in chat.messages if msg.role == "user"]
+    if not user_messages:
+        return jsonify({"error": "No user messages to retry"}), 400
+    
+    last_user_message = user_messages[-1]
+    
+    # Create a copy of the chat to preserve the original messages
+    chat_copy = copy.deepcopy(chat)
+    
+    # Get provider instance
+    provider = get_provider(provider_id or chat.provider)
+    if not provider:
+        return jsonify({"error": f"Provider {provider_id or chat.provider} not found"}), 404
+    
+    # Prepare messages for the API call
+    api_messages = []
+    for message in chat.messages:
+        api_messages.append({
+            "role": message.role,
+            "content": message.content
+        })
+    
+    # Call the provider API
+    try:
+        retry_count = 0
+        max_retries = 3
+        response = None
+        backoff_factor = 0.5
+        
+        while retry_count <= max_retries:
+            try:
+                logger.debug(f"Retrying chat {chat_id} with provider {provider_id or chat.provider} and model {model_id or chat.model}")
+                start_time = time.time()
+                
+                response = provider.chat_completion(
+                    model=model_id or chat.model,
+                    messages=api_messages,
+                    temperature=0.7,
+                    max_tokens=2000
+                )
+                
+                api_time = time.time() - start_time
+                logger.info(f"Retry API call took {api_time:.2f} seconds")
+                break
+                
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry API call failed (attempt {retry_count}): {str(e)}")
+                
+                if retry_count > max_retries:
+                    return jsonify({
+                        "error": f"Provider API failed after {max_retries} attempts: {str(e)}"
+                    }), 503
+                
+                # Exponential backoff before retry
+                time.sleep(backoff_factor * (2 ** retry_count))
+        
+        # Check if there was an error
+        if 'error' in response:
+            logger.error(f"Provider API error in retry: {response['error']}")
+            return jsonify(response), 500
+        
+        # Extract the assistant response
+        assistant_response = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+        logger.debug(f"Received retry assistant response: {assistant_response[:30]}...")
+        
+        # Add the assistant response to the chat
+        chat.add_message("assistant", assistant_response)
+        
+        # Update the chat in the store
+        success = chat_store.update_chat(chat)
+        if not success:
+            return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
+        
+        # Clear cached responses that might include this chat
+        global response_cache
+        response_cache = {k: v for k, v in response_cache.items() if chat_id not in k}
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        logger.error(f"Error retrying chat {chat_id}: {str(e)}")
+        return jsonify({"error": f"Failed to retry chat: {str(e)}"}), 500
+
+@api_routes.route('/chats/<chat_id>/save', methods=['POST'])
+@rate_limit
+@api_error_handler
+def save_chat(chat_id):
+    """Save a chat"""
+    # Get the chat without requiring JSON payload
+    chat = chat_store.get_chat(chat_id)
+    if not chat:
+        return jsonify({"error": f"Chat {chat_id} not found"}), 404
+
+    # Save the chat
+    success = chat_store.update_chat(chat)
     if not success:
         return jsonify({"error": f"Failed to update chat {chat_id}"}), 500
 
