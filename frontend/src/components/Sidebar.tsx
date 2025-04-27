@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useState, useRef, useEffect, useCallback, memo, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Settings, MessageSquare, Plus, ChevronDown, ChevronLeft,
@@ -10,6 +10,37 @@ import {
 import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model } from '@/lib/api';
 import { SidebarHeader } from './SidebarHeader';
 import { saveAs } from 'file-saver';
+
+// Add styles at the top of the file
+const globalStyles = `
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-slideInRight {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s infinite ease-in-out;
+}
+`;
 
 // Define the structure for default settings
 interface DefaultSettings {
@@ -30,6 +61,120 @@ type SidebarProps = {
   onExportChat: (chatId: string, format: 'md' | 'pdf' | 'json') => void;
   onRetryChat: (chatId: string) => void;
 };
+
+// Custom hook for local storage
+function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
+  // State to store our value
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    if (typeof window === 'undefined') return initialValue;
+    
+    try {
+      // Get from local storage by key
+      const item = window.localStorage.getItem(key);
+      // Parse stored json or if none, return initialValue
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.error("Error reading from localStorage:", error);
+      return initialValue;
+    }
+  });
+  
+  // Function to update stored value and localStorage
+  const setValue = useCallback((value: T) => {
+    try {
+      // Save state
+      setStoredValue(value);
+      // Save to local storage
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(key, JSON.stringify(value));
+      }
+    } catch (error) {
+      console.error("Error saving to localStorage:", error);
+    }
+  }, [key]);
+  
+  return [storedValue, setValue];
+}
+
+// Custom hook for API data fetching
+function useApiData() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
+  const [personas, setPersonas] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [defaults] = useLocalStorage<DefaultSettings>('omniChatDefaults', {
+    provider: 'openai',
+    model: 'gpt-4o',
+    persona: 'Friendly Assistant',
+    maxTokens: 4000
+  });
+  
+  // Fetch initial data
+  const fetchInitialData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch providers
+      const providersData = await getProviders();
+      setProviders(providersData);
+      
+      // Determine which provider to use
+      let defaultProviderId = defaults.provider;
+      
+      // Verify the provider exists, otherwise use the first one
+      if (!providersData.some(p => p.id === defaultProviderId)) {
+        const defaultProvider = providersData.find(p => p.default) || providersData[0];
+        if (defaultProvider) {
+          defaultProviderId = defaultProvider.id;
+        }
+      }
+      
+      // Fetch models for the selected provider
+      const modelsData = await getModels(defaultProviderId);
+      setModels(modelsData);
+      
+      // Fetch personas
+      const personasData = await getPersonas();
+      const personaNames = personasData.map(p => typeof p === 'string' ? p : p.name);
+      setPersonas(personaNames);
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [defaults.provider]);
+  
+  // Fetch models for a specific provider
+  const fetchModelsForProvider = useCallback(async (providerId: string) => {
+    if (!providerId) return [];
+    
+    setLoadingModels(true);
+    try {
+      const modelsData = await getModels(providerId);
+      setModels(modelsData);
+      return modelsData;
+    } catch (error) {
+      console.error(`Error fetching models for ${providerId}:`, error);
+      return [];
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
+  
+  // Initial data load
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+  
+  return {
+    providers,
+    models,
+    personas,
+    loading,
+    loadingModels,
+    fetchModelsForProvider
+  };
+}
 
 // Extract ChatList to a separate memoized component to prevent re-renders
 const ChatList = memo(({
@@ -151,18 +296,67 @@ const ModelPreview = memo(({
   onModelSelect: (modelId: string) => void,
   isLoading: boolean
 }) => {
-  // Group models by main capabilities for visual organization
-  const modelGroups = {
+  // Group models by main capabilities for visual organization - using useMemo for performance
+  const modelGroups = useMemo(() => ({
     vision: models.filter(m => m.capabilities.includes('vision')),
     chat: models.filter(m => !m.capabilities.includes('vision') && m.capabilities.includes('chat')),
     other: models.filter(m => !m.capabilities.includes('vision') && !m.capabilities.includes('chat'))
-  };
+  }), [models]);
 
-  // Get provider name from model data
-  const providerName = models.length > 0 ? models[0].provider : provider;
+  // Get selected model details - using useMemo to avoid recalculation on every render
+  const selectedModelDetails = useMemo(() => 
+    models.find(m => m.id === selectedModel), 
+    [models, selectedModel]
+  );
+  
+  // Group all model data for the dropdown in one memo
+  const { dropdownOptions, hasModels } = useMemo(() => {
+    const hasVision = modelGroups.vision.length > 0;
+    const hasChat = modelGroups.chat.length > 0;
+    const hasOther = modelGroups.other.length > 0;
+    
+    return {
+      hasModels: models.length > 0,
+      dropdownOptions: (
+        <>
+          {hasVision && (
+            <optgroup label="Vision Models">
+              {modelGroups.vision.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} {model.economical ? '(Economical)' : ''}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          
+          {hasChat && (
+            <optgroup label="Chat Models">
+              {modelGroups.chat.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} {model.economical ? '(Economical)' : ''}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          
+          {hasOther && (
+            <optgroup label="Other Models">
+              {modelGroups.other.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} {model.economical ? '(Economical)' : ''}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </>
+      )
+    };
+  }, [modelGroups, models.length]);
 
-  // This ensures we only show unique models (no duplicates)
-  const uniqueModels = [...new Map(models.map(model => [model.id, model])).values()];
+  // Model selection handler
+  const handleModelChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    onModelSelect(e.target.value);
+  }, [onModelSelect]);
   
   if (isLoading) {
     return (
@@ -176,7 +370,7 @@ const ModelPreview = memo(({
     );
   }
 
-  if (models.length === 0) {
+  if (!hasModels) {
     return (
       <div className="mb-4">
         <div className="flex justify-between items-center mb-1.5">
@@ -193,68 +387,66 @@ const ModelPreview = memo(({
     <div className="mb-4">
       <div className="flex justify-between items-center mb-1.5">
         <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Model Selection</label>
+        {selectedModelDetails?.capabilities?.includes('vision') && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+            </svg>
+            Vision
+          </span>
+        )}
       </div>
       <div className="relative">
         <select
           value={selectedModel}
-          onChange={(e) => onModelSelect(e.target.value)}
-          className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm"
+          onChange={handleModelChange}
+          className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm transition-all duration-300"
         >
-          {/* Vision Models Group */}
-          {modelGroups.vision.length > 0 && (
-            <optgroup label="Vision Models">
-              {modelGroups.vision.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          
-          {/* Chat Models Group */}
-          {modelGroups.chat.length > 0 && (
-            <optgroup label="Chat Models">
-              {modelGroups.chat.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          
-          {/* Other Models Group */}
-          {modelGroups.other.length > 0 && (
-            <optgroup label="Other Models">
-              {modelGroups.other.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name} {model.economical ? '(Economical)' : ''}
-                </option>
-              ))}
-            </optgroup>
-          )}
+          {dropdownOptions}
         </select>
         <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
       </div>
       
-      {/* Model Capabilities Preview */}
-      {selectedModel && (
-        <div className="mt-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+      {/* Model Capabilities Preview with transition animation */}
+      {selectedModelDetails && (
+        <div className="mt-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-300 animate-fadeIn">
           <div className="flex items-center justify-between mb-2">
             <span className="font-medium text-sm text-gray-700 dark:text-gray-300">
-              {models.find(m => m.id === selectedModel)?.name || 'Selected Model'}
+              {selectedModelDetails.name || 'Selected Model'}
             </span>
-            {models.find(m => m.id === selectedModel)?.economical && (
+            {selectedModelDetails.economical && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
                 Economical
               </span>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {models.find(m => m.id === selectedModel)?.capabilities.map(capability => (
+            {selectedModelDetails.capabilities.map(capability => (
               <span 
                 key={capability} 
-                className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs rounded-md"
+                className={`px-2 py-1 border text-xs rounded-md ${
+                  capability === 'vision' 
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300' 
+                    : capability === 'chat'
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                      : 'bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800 text-purple-700 dark:text-purple-300'
+                }`}
               >
+                {capability === 'vision' && (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                  </svg>
+                )}
+                {capability === 'chat' && (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                )}
                 {capability}
               </span>
             ))}
@@ -269,53 +461,581 @@ ModelPreview.displayName = 'ModelPreview';
 
 SettingsControl.displayName = 'SettingsControl';
 
+// Replace the SettingsTab component with this optimized version
+
+const SettingsTab = memo(({ 
+  loading, 
+  providers, 
+  models, 
+  personas,
+  provider, 
+  model, 
+  persona, 
+  mode, 
+  maxTokens, 
+  temperature, 
+  audioResponse,
+  loadingModels,
+  theme,
+  toggleTheme,
+  handleProviderChange,
+  setMode,
+  setModel,
+  setPersona,
+  setMaxTokens,
+  setTemperature,
+  setAudioResponse,
+  handleSaveDefaults,
+  selectedProviderName
+}: {
+  loading: boolean;
+  providers: Provider[];
+  models: Model[];
+  personas: string[];
+  provider: string;
+  model: string;
+  persona: string;
+  mode: string;
+  maxTokens: number;
+  temperature: number;
+  audioResponse: boolean;
+  loadingModels: boolean;
+  theme: string;
+  toggleTheme: () => void;
+  handleProviderChange: (providerId: string) => void;
+  setMode: (mode: string) => void;
+  setModel: (model: string) => void;
+  setPersona: (persona: string) => void;
+  setMaxTokens: (tokens: number) => void;
+  setTemperature: (temp: number) => void;
+  setAudioResponse: (enabled: boolean) => void;
+  handleSaveDefaults: () => void;
+  selectedProviderName: string;
+}) => {
+  // Memoize calculated values
+  const calculatedTokens = useMemo(() => 
+    Math.floor((maxTokens / 100) * 8000), 
+    [maxTokens]
+  );
+  
+  const temperatureValue = useMemo(() => 
+    temperature / 100, 
+    [temperature]
+  );
+  
+  const providerWebsite = useMemo(() => 
+    providers.find(p => p.id === provider)?.website, 
+    [providers, provider]
+  );
+
+  // Memoize event handlers to prevent unnecessary re-renders
+  const handleTokenChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setMaxTokens(parseInt(e.target.value));
+  }, [setMaxTokens]);
+
+  const handleTemperatureChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTemperature(parseInt(e.target.value));
+  }, [setTemperature]);
+
+  const setTokenPreset = useCallback((tokens: number) => {
+    setMaxTokens(Math.floor((tokens / 8000) * 100));
+  }, [setMaxTokens]);
+
+  const handleAudioToggle = useCallback((enabled: boolean) => {
+    setAudioResponse(enabled);
+  }, [setAudioResponse]);
+  
+  // For the loading state, use a visually pleasing skeleton
+  if (loading) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="flex justify-between items-center mb-3">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 animate-pulse"></div>
+          <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse"></div>
+        </div>
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="space-y-2">
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20 animate-pulse"></div>
+            <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  
+  return (
+    <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
+        {/* Theme toggle with animation */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors duration-300 hover:shadow-md"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' 
+            ? <Moon className="w-5 h-5 text-yellow-500 animate-fadeIn" /> 
+            : <Sun className="w-5 h-5 text-yellow-500 animate-fadeIn" />
+          }
+        </button>
+      </div>
+
+      {/* Mode */}
+      <SettingsControl
+        loading={loading}
+        label="Chat Mode"
+        value={mode}
+        options={['Chat', 'RAG', 'Image']}
+        onChange={setMode}
+      />
+
+      {/* Provider with brand colors */}
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-1.5">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Provider</label>
+        </div>
+        <div className="relative">
+          <select
+            value={provider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+            className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm"
+          >
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+        </div>
+      </div>
+      
+      {/* Model Preview with enhanced UI */}
+      <ModelPreview 
+        models={models}
+        provider={provider}
+        selectedModel={model}
+        onModelSelect={setModel}
+        isLoading={loadingModels}
+      />
+
+      {/* Persona */}
+      <SettingsControl
+        loading={loading}
+        label="Persona"
+        value={persona}
+        options={personas}
+        onChange={setPersona}
+      />
+
+      {/* Max Tokens */}
+      <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
+        <div className="flex justify-between items-center mb-1.5">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
+          <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+            {calculatedTokens}
+          </span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={maxTokens}
+          onChange={handleTokenChange}
+          className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
+        />
+        <div className="flex justify-between mt-1.5">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
+        </div>
+
+        {/* Quick Token Presets */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setTokenPreset(2000)}
+            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
+          >
+            2000
+          </button>
+          <button
+            onClick={() => setTokenPreset(4000)}
+            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
+          >
+            4000
+          </button>
+          <button
+            onClick={() => setTokenPreset(8000)}
+            className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
+          >
+            8000
+          </button>
+        </div>
+      </div>
+
+      {/* Temperature */}
+      <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
+        <div className="flex justify-between items-center mb-1.5">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
+          <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+            {temperatureValue}
+          </span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={temperature}
+          onChange={handleTemperatureChange}
+          className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
+        />
+        <div className="flex justify-between mt-1.5">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
+        </div>
+      </div>
+
+      {/* Audio Response */}
+      <div className="mb-6 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
+          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <button
+              onClick={() => handleAudioToggle(false)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
+                ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                : 'text-gray-500 dark:text-gray-400'
+                }`}
+            >
+              Off
+            </button>
+            <button
+              onClick={() => handleAudioToggle(true)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
+                ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
+                : 'text-gray-500 dark:text-gray-400'
+                }`}
+            >
+              On
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Save as Defaults Button */}
+      <div className="mb-4 pt-2">
+        <button
+          onClick={handleSaveDefaults}
+          className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          Save as Default Settings
+        </button>
+      </div>
+
+      {/* Provider Link */}
+      {providerWebsite && (
+        <div className="mt-5 mb-3 text-center">
+          <a
+            href={providerWebsite}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
+          >
+            View {selectedProviderName} provider details
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+        </div>
+      )}
+    </div>
+  );
+});
+
+SettingsTab.displayName = 'SettingsTab';
+
+const DocsTab = memo(() => {
+  return (
+    <div className="p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
+      </div>
+      <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
+        <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+        <p>No documents uploaded yet</p>
+        <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
+          <Upload className="w-4 h-4 mr-2" />
+          Upload Document
+        </button>
+      </div>
+    </div>
+  );
+});
+
+DocsTab.displayName = 'DocsTab';
+
+const ChatsTab = memo(({ 
+  filteredChats, 
+  currentChatId, 
+  onChatSelect, 
+  onDeleteChat 
+}: {
+  filteredChats: ChatSummary[];
+  currentChatId: string;
+  onChatSelect: (id: string) => void;
+  onDeleteChat: (id: string) => void;
+}) => {
+  return (
+    <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+      <div className="p-4">
+        {/* Chat List */}
+        <div className="space-y-2">
+          {filteredChats.length > 0 ? (
+            filteredChats.map(chat => (
+              <button
+                key={chat.chat_id}
+                onClick={() => onChatSelect(chat.chat_id)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start group transition-colors duration-200 ${
+                  chat.chat_id === currentChatId
+                    ? 'bg-blue-100 dark:bg-blue-900/20 border-blue-500 dark:border-blue-800'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center mb-1">
+                    <span className={`text-sm font-medium truncate ${
+                      chat.chat_id === currentChatId
+                        ? 'text-blue-700 dark:text-blue-400'
+                        : 'text-gray-800 dark:text-gray-200'
+                    }`}>
+                      {chat.title || 'Untitled Chat'}
+                    </span>
+                  </div>
+                  <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
+                    <span className="truncate">
+                      {new Date(chat.updated_at).toLocaleDateString()}
+                    </span>
+                    <span className="mx-1">·</span>
+                    <span className="truncate">{chat.provider}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteChat(chat.chat_id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-opacity duration-200"
+                  aria-label="Delete chat"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </button>
+            ))
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ChatsTab.displayName = 'ChatsTab';
+
+// Reusable Modal component
+const Modal = memo(({
+  title,
+  onClose,
+  children
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) => {
+  // Close on escape key press
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold mb-2">{title}</h2>
+        {children}
+        <div className="flex justify-end mt-4">
+          <button
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+Modal.displayName = 'Modal';
+
+// ButtonGrid component for action buttons
+const ButtonGrid = memo(({
+  currentChatId,
+  chats,
+  onRetry,
+  onNew,
+  onSave,
+  onLoad,
+  onDelete,
+  onExport,
+}: {
+  currentChatId: string;
+  chats: ChatSummary[];
+  onRetry: () => void;
+  onNew: () => void;
+  onSave: () => void;
+  onLoad: () => void;
+  onDelete: () => void;
+  onExport: () => void;
+}) => {
+  // Grid structure
+  const buttons = [
+    {
+      label: 'Retry',
+      onClick: onRetry,
+      disabled: !currentChatId,
+      title: !currentChatId ? 'Select a chat first' : 'Retry the last message with the current model',
+    },
+    {
+      label: 'New',
+      onClick: onNew,
+      disabled: false,
+      title: 'Start a new conversation',
+    },
+    {
+      label: 'Save',
+      onClick: onSave,
+      disabled: !currentChatId,
+      title: !currentChatId ? 'Select a chat first' : 'Save the current conversation',
+    },
+    {
+      label: 'Load',
+      onClick: onLoad,
+      disabled: chats.length === 0,
+      title: chats.length === 0 ? 'No saved chats available' : 'Load a saved conversation',
+    },
+    {
+      label: 'Delete',
+      onClick: onDelete,
+      disabled: chats.length === 0,
+      title: chats.length === 0 ? 'No saved chats available' : 'Delete a saved conversation',
+    },
+    {
+      label: 'Export',
+      onClick: onExport,
+      disabled: !currentChatId,
+      title: !currentChatId ? 'Select a chat first' : 'Export the current conversation',
+    },
+  ];
+
+  return (
+    <div className="px-4 py-3">
+      <div className="grid grid-cols-3 gap-2">
+        {buttons.map((button, index) => (
+          <button
+            key={index}
+            className={`${
+              button.disabled 
+                ? 'bg-blue-300 dark:bg-blue-800/50 cursor-not-allowed' 
+                : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600'
+            } text-white font-semibold py-2 rounded transition-colors`}
+            onClick={button.onClick}
+            disabled={button.disabled}
+            title={button.title}
+          >
+            {button.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+ButtonGrid.displayName = 'ButtonGrid';
+
 export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat }: SidebarProps) {
+  // State
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chats' | 'settings' | 'docs'>('chats');
+  
+  // Use the local storage hook for all settings
+  const [settings, setSettings] = useLocalStorage<DefaultSettings>('omniChatDefaults', {
+    provider: 'openai',
+    model: 'gpt-4o',
+    persona: 'Friendly Assistant',
+    maxTokens: 4000
+  });
+  
+  // Add global styles effect here, inside the component
+  useEffect(() => {
+    // Only add once
+    if (document.getElementById('omni-chat-global-styles')) return;
+    
+    const styleEl = document.createElement('style');
+    styleEl.id = 'omni-chat-global-styles';
+    styleEl.innerHTML = globalStyles;
+    document.head.appendChild(styleEl);
+    
+    return () => {
+      document.head.removeChild(styleEl);
+    };
+  }, []);
+  
+  // Destructure settings for easier access
+  const { provider, model, persona, maxTokens } = settings;
+  
+  // Settings state that doesn't need to be persisted
   const [mode, setMode] = useState('Chat');
-  const [provider, setProvider] = useState('openai');
-  const [model, setModel] = useState('gpt-4o');
-  const [persona, setPersona] = useState('Friendly Assistant');
-  const [maxTokens, setMaxTokens] = useState(50);
   const [temperature, setTemperature] = useState(50);
   const [audioResponse, setAudioResponse] = useState(false);
-  const router = useRouter();
+  
+  // Use the API data hook
+  const { 
+    providers, 
+    models, 
+    personas, 
+    loading, 
+    loadingModels, 
+    fetchModelsForProvider 
+  } = useApiData();
+  
+  // Modal states
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [loadSearch, setLoadSearch] = useState('');
+  const [deleteSearch, setDeleteSearch] = useState('');
+  
+  // Refs
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const providerChangingRef = useRef(false);
+  
+  const router = useRouter();
 
-  // Theme toggle state
-  const [theme, setTheme] = useState('light');
+  // Theme handling
+  const [theme, setTheme] = useLocalStorage<string>('theme', 
+    typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches 
+      ? 'dark' 
+      : 'light'
+  );
 
-  // Sync theme with localStorage and document class
-  useEffect(() => {
-    // On mount, set theme from localStorage or system preference
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('theme') : null;
-    let initialTheme = stored || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    setTheme(initialTheme);
-    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
-  }, []);
-
+  // Apply theme to document
   useEffect(() => {
     if (typeof window !== 'undefined') {
       document.documentElement.classList.toggle('dark', theme === 'dark');
-      localStorage.setItem('theme', theme);
     }
   }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  }, []);
-
-  // Ensure chats is always an array
-  const chatsArray = Array.isArray(chats) ? chats : [];
-
-  // API data states
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [models, setModels] = useState<Model[]>([]);
-  const [personas, setPersonas] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingModels, setLoadingModels] = useState(false);
 
   // Close drawer when collapsed
   useEffect(() => {
@@ -339,191 +1059,97 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     };
   }, []);
 
-  // Load saved defaults - memoize with useCallback
-  const loadSavedDefaults = useCallback(() => {
-    try {
-      const savedDefaults = localStorage.getItem('omniChatDefaults');
-      if (savedDefaults) {
-        const defaults: DefaultSettings = JSON.parse(savedDefaults);
-
-        // Apply saved defaults if available
-        if (defaults.provider) {
-          setProvider(defaults.provider);
-        }
-        if (defaults.model) {
-          setModel(defaults.model);
-        }
-        if (defaults.persona) {
-          setPersona(defaults.persona);
-        }
-        if (defaults.maxTokens) {
-          // Convert to scale of 0-100 for the UI slider
-          const normalizedTokens = Math.min(100, Math.max(0, Math.floor((defaults.maxTokens / 8000) * 100)));
-          setMaxTokens(normalizedTokens);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading saved defaults:', error);
-    }
-  }, []);
-
-  // Load saved defaults on mount
-  useEffect(() => {
-    loadSavedDefaults();
-  }, [loadSavedDefaults]);
-
-  // Fetch providers, models, and personas when component mounts
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const providersData = await getProviders();
-        setProviders(providersData);
-
-        // Check for saved defaults first
-        const savedDefaults = localStorage.getItem('omniChatDefaults');
-        let defaultProviderId = 'openai'; // Default fallback
-
-        if (savedDefaults) {
-          const defaults: DefaultSettings = JSON.parse(savedDefaults);
-          // Check if the saved provider exists in our loaded providers
-          const providerExists = providersData.some(p => p.id === defaults.provider);
-          if (providerExists) {
-            defaultProviderId = defaults.provider;
-            setProvider(defaults.provider);
-          }
-        }
-
-        // If no saved defaults or provider not found, use API default
-        if (!savedDefaults || !providersData.some(p => p.id === provider)) {
-          // Set default provider if available
-          const defaultProvider = providersData.find(p => p.default) || providersData[0];
-          if (defaultProvider) {
-            defaultProviderId = defaultProvider.id;
-            setProvider(defaultProvider.id);
-          }
-        }
-
-        // Fetch models for the selected provider
-        const modelsData = await getModels(defaultProviderId);
-        setModels(modelsData);
-
-        // Check for saved default model
-        if (savedDefaults) {
-          const defaults: DefaultSettings = JSON.parse(savedDefaults);
-          // Only use saved model if it belongs to the selected provider
-          const modelExists = modelsData.some(m => m.id === defaults.model);
-          if (modelExists) {
-            setModel(defaults.model);
-          } else if (modelsData.length > 0) {
-            // Fallback to first available model
-            setModel(modelsData[0].id);
-          }
-        } else if (modelsData.length > 0) {
-          // No saved defaults, use first model
-          setModel(modelsData[0].id);
-        }
-
-        // Fetch personas
-        const personasData = await getPersonas();
-        const personaNames = personasData.map(p => typeof p === 'string' ? p : p.name);
-        setPersonas(personaNames);
-
-        // Check for saved default persona
-        if (savedDefaults) {
-          const defaults: DefaultSettings = JSON.parse(savedDefaults);
-          // Check if saved persona exists
-          if (personaNames.includes(defaults.persona)) {
-            setPersona(defaults.persona);
-          } else if (personaNames.length > 0) {
-            // Fallback to first persona
-            setPersona(personaNames[0]);
-          }
-        } else if (personaNames.length > 0) {
-          // No saved defaults, use first persona
-          setPersona(personaNames[0]);
-        }
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  // Fetch models when provider changes - memoize with useCallback
-  const fetchModelsForProvider = useCallback(async () => {
-    if (!provider) return;
-
-    setLoadingModels(true);
-    try {
-      const modelsData = await getModels(provider);
-      setModels(modelsData);
-
-      // Try to keep the current model if it's compatible with new provider
-      const currentModelCompatible = modelsData.some(m => m.id === model);
-
-      if (!currentModelCompatible) {
-        // Check for saved default
-        const savedDefaults = localStorage.getItem('omniChatDefaults');
-        if (savedDefaults) {
-          const defaults: DefaultSettings = JSON.parse(savedDefaults);
-          // Only use saved model if it belongs to the selected provider
-          const savedModelCompatible = modelsData.some(m => m.id === defaults.model);
-
-          if (savedModelCompatible) {
-            setModel(defaults.model);
-          } else if (modelsData.length > 0) {
-            // Default to first model
-            setModel(modelsData[0].id);
-          }
-        } else if (modelsData.length > 0) {
-          // No saved defaults, use first model
-          setModel(modelsData[0].id);
-        }
-      }
-    } catch (error) {
-      console.error(`Error fetching models for ${provider}:`, error);
-    } finally {
-      setLoadingModels(false);
-    }
-  }, [provider, model]);
+  // Ensure chats is always an array
+  const chatsArray = useMemo(() => Array.isArray(chats) ? chats : [], [chats]);
 
   // Update models when provider changes
   useEffect(() => {
-    fetchModelsForProvider();
-  }, [fetchModelsForProvider]);
+    // Skip if provider is changing
+    if (providerChangingRef.current) return;
+    
+    const updateModels = async () => {
+      providerChangingRef.current = true;
+      const modelData = await fetchModelsForProvider(provider);
+      
+      // Keep current model if compatible, otherwise use first model
+      if (modelData.length > 0) {
+        const currentModelCompatible = modelData.some(m => m.id === model);
+        if (!currentModelCompatible) {
+          updateSetting('model', modelData[0].id);
+        }
+      }
+      providerChangingRef.current = false;
+    };
+    
+    updateModels();
+  }, [provider, model, fetchModelsForProvider]);
 
-  // Filtered chats based on search query - memoize this
-  const filteredChats = searchQuery
-    ? chatsArray.filter(chat =>
-      chat.title.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    : chatsArray;
+  // Get provider/model names - memoized
+  const selectedProviderName = useMemo(() => 
+    providers.find(p => p.id === provider)?.name || '',
+    [providers, provider]
+  );
 
-  // Get the currently selected provider name
-  const selectedProviderName = providers.find(p => p.id === provider)?.name || '';
+  const selectedModelName = useMemo(() => 
+    models.find(m => m.id === model)?.name || '',
+    [models, model]
+  );
 
-  // Get the currently selected model name
-  const selectedModelName = models.find(m => m.id === model)?.name || '';
+  // Filtered chats based on search query - memoized
+  const filteredChats = useMemo(() => 
+    searchQuery
+      ? chatsArray.filter(chat => chat.title.toLowerCase().includes(searchQuery.toLowerCase()))
+      : chatsArray,
+    [chatsArray, searchQuery]
+  );
+  
+  // Filtered chats for load/delete modals - memoized
+  const filteredLoadChats = useMemo(() => 
+    loadSearch
+      ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
+      : chats,
+    [chats, loadSearch]
+  );
+  
+  const filteredDeleteChats = useMemo(() => 
+    deleteSearch
+      ? chats.filter(chat => chat.title.toLowerCase().includes(deleteSearch.toLowerCase()))
+      : chats,
+    [chats, deleteSearch]
+  );
+
+  // Helper function to update a single setting
+  const updateSetting = useCallback(<K extends keyof DefaultSettings>(key: K, value: DefaultSettings[K]) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+  }, [setSettings]);
 
   // Handle provider change
   const handleProviderChange = useCallback((newProviderId: string) => {
-    setProvider(newProviderId);
-    // The model will be updated automatically by the useEffect
-  }, []);
+    updateSetting('provider', newProviderId);
+  }, [updateSetting]);
+  
+  // Handle model change
+  const handleModelChange = useCallback((newModel: string) => {
+    updateSetting('model', newModel);
+  }, [updateSetting]);
+  
+  // Handle persona change
+  const handlePersonaChange = useCallback((newPersona: string) => {
+    updateSetting('persona', newPersona);
+  }, [updateSetting]);
+  
+  // Handle max tokens change
+  const handleMaxTokensChange = useCallback((newMaxTokens: number) => {
+    updateSetting('maxTokens', newMaxTokens);
+  }, [updateSetting]);
 
-  // Handle voice input button click
+  // Handle voice input
   const handleVoiceInput = useCallback(() => {
-    // Voice input functionality
     alert('Voice input functionality will be implemented here');
   }, []);
 
-  // Handle sliders button click for quick settings access
+  // Handle sliders click
   const handleSlidersClick = useCallback(() => {
-    // Toggle settings drawer when in collapsed mode
     if (collapsed) {
       setCollapsed(false);
       setTimeout(() => setActiveTab('settings'), 300);
@@ -534,335 +1160,136 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
 
   // Handle new chat with defaults
   const handleNewChatWithDefaults = useCallback(() => {
-    // Call the onNewChat function from props which should create a new chat
     onNewChat();
-
-    // Apply default settings if available
-    try {
-      const savedDefaults = localStorage.getItem('omniChatDefaults');
-      if (savedDefaults) {
-        // In a real implementation, you would apply these defaults to the new chat
-        console.log('Creating new chat with saved defaults:', JSON.parse(savedDefaults));
-      }
-    } catch (error) {
-      console.error('Error applying defaults to new chat:', error);
-    }
   }, [onNewChat]);
 
+  // Toggle sidebar collapse
+  const toggleCollapse = useCallback(() => {
+    setCollapsed(!collapsed);
+  }, [collapsed]);
+
+  // Toggle theme
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  }, [setTheme]);
+
+  // Action handlers
+  const handleRetryClick = useCallback(() => {
+    if (currentChatId) onRetryChat(currentChatId);
+  }, [currentChatId, onRetryChat]);
+  
+  const handleNewClick = useCallback(() => {
+    onNewChat();
+  }, [onNewChat]);
+  
+  const handleSaveClick = useCallback(() => {
+    if (currentChatId) onSaveChat(currentChatId);
+  }, [currentChatId, onSaveChat]);
+  
+  const handleLoadClick = useCallback(() => {
+    setShowLoadModal(true);
+  }, []);
+  
+  const handleDeleteClick = useCallback(() => {
+    setShowDeleteModal(true);
+  }, []);
+  
+  const handleExportClick = useCallback(() => {
+    setShowExportModal(true);
+  }, []);
+  
+  const handleExportFormat = useCallback((format: 'md' | 'pdf' | 'json') => {
+    if (currentChatId) onExportChat(currentChatId, format);
+    setShowExportModal(false);
+  }, [currentChatId, onExportChat]);
+
+  // Add the handleSaveDefaults function before renderTab
   const handleSaveDefaults = useCallback(() => {
-    const defaults: DefaultSettings = {
+    // Save current settings as defaults
+    setSettings({
       provider,
       model,
       persona,
       maxTokens
-    };
-    localStorage.setItem('omniChatDefaults', JSON.stringify(defaults));
-    alert('Settings saved as defaults for new chats');
-  }, [provider, model, persona, maxTokens]);
+    });
+    // Show feedback to user
+    alert('Settings saved as defaults!');
+  }, [setSettings, provider, model, persona, maxTokens]);
 
+  // Add renderTab function inside the component
   const renderTab = useCallback(() => {
-    if (activeTab === 'settings') {
-      return (
-        <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
-            {/* Theme toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors duration-300"
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? <Moon className="w-5 h-5 text-yellow-500" /> : <Sun className="w-5 h-5 text-yellow-500" />}
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-t-blue-500 border-r-transparent border-b-blue-300 border-l-transparent"></div>
-            </div>
-          ) : (
-            <>
-              {/* Mode */}
-              <SettingsControl
-                loading={loading}
-                label="Chat Mode"
-                value={mode}
-                options={['Chat', 'RAG', 'Image']}
-                onChange={setMode}
-              />
-
-              {/* Provider */}
-              <SettingsControl
-                loading={loading}
-                label="AI Provider"
-                value={provider}
-                options={providers}
-                onChange={handleProviderChange}
-              />
-              
-              {/* Model Preview (new component) */}
-              <ModelPreview 
-                models={models}
-                provider={provider}
-                selectedModel={model}
-                onModelSelect={setModel}
-                isLoading={loadingModels}
-              />
-
-              {/* Persona */}
-              <SettingsControl
-                loading={loading}
-                label="Persona"
-                value={persona}
-                options={personas}
-                onChange={setPersona}
-              />
-
-              {/* Max Tokens */}
-              <div className="mb-5">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                    {Math.floor((maxTokens / 100) * 8000)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
-                </div>
-              </div>
-
-              {/* Quick Token Presets */}
-              <div className="mb-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setMaxTokens(Math.floor((2000 / 8000) * 100))}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
-                >
-                  2000
-                </button>
-                <button
-                  onClick={() => setMaxTokens(Math.floor((4000 / 8000) * 100))}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
-                >
-                  4000
-                </button>
-                <button
-                  onClick={() => setMaxTokens(Math.floor((8000 / 8000) * 100))}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
-                >
-                  8000
-                </button>
-              </div>
-
-              {/* Temperature */}
-              <div className="mb-5">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                    {temperature / 100}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
-                </div>
-              </div>
-
-              {/* Audio Response */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
-                  <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-                    <button
-                      onClick={() => setAudioResponse(false)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
-                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                        : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                    >
-                      Off
-                    </button>
-                    <button
-                      onClick={() => setAudioResponse(true)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
-                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                        : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                    >
-                      On
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Save as Defaults Button */}
-              <div className="mb-4 pt-2">
-                <button
-                  onClick={handleSaveDefaults}
-                  className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save as Default Settings
-                </button>
-              </div>
-
-              {/* Provider Link */}
-              {providers.find(p => p.id === provider)?.website && (
-                <div className="mt-5 mb-3 text-center">
-                  <a
-                    href={providers.find(p => p.id === provider)?.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
-                  >
-                    View {selectedProviderName} provider details
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      );
-    } else if (activeTab === 'docs') {
-      return (
-        <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
-          </div>
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
-            <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
-            <p>No documents uploaded yet</p>
-            <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
-              <Upload className="w-4 h-4 mr-2" />
-              Upload Document
-            </button>
-          </div>
-        </div>
-      );
-    } else {
-      // Chats tab - remove search bar, new chat button, and "no conversation yet" message
-      return (
-        <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-          <div className="p-4">
-            {/* Chat List */}
-            <div className="space-y-2">
-              {filteredChats.length > 0 ? (
-                filteredChats.map(chat => (
-                  <button
-                    key={chat.chat_id}
-                    onClick={() => onChatSelect(chat.chat_id)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start group transition-colors duration-200 ${
-                      chat.chat_id === currentChatId
-                        ? 'bg-blue-100 dark:bg-blue-900/20 border-blue-500 dark:border-blue-800'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center mb-1">
-                        <span className={`text-sm font-medium truncate ${
-                          chat.chat_id === currentChatId
-                            ? 'text-blue-700 dark:text-blue-400'
-                            : 'text-gray-800 dark:text-gray-200'
-                        }`}>
-                          {chat.title || 'Untitled Chat'}
-                        </span>
-                      </div>
-                      <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
-                        <span className="truncate">
-                          {new Date(chat.updated_at).toLocaleDateString()}
-                        </span>
-                        <span className="mx-1">·</span>
-                        <span className="truncate">{chat.provider}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteChat(chat.chat_id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-opacity duration-200"
-                      aria-label="Delete chat"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </button>
-                ))
-              ) : null}
-            </div>
-          </div>
-        </div>
-      );
+    switch (activeTab) {
+      case 'settings':
+        return (
+          <SettingsTab
+            loading={loading}
+            providers={providers}
+            models={models}
+            personas={personas}
+            provider={provider}
+            model={model}
+            persona={persona}
+            mode={mode}
+            maxTokens={maxTokens}
+            temperature={temperature}
+            audioResponse={audioResponse}
+            loadingModels={loadingModels}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            handleProviderChange={handleProviderChange}
+            setMode={setMode}
+            setModel={handleModelChange}
+            setPersona={handlePersonaChange}
+            setMaxTokens={handleMaxTokensChange}
+            setTemperature={setTemperature}
+            setAudioResponse={setAudioResponse}
+            handleSaveDefaults={handleSaveDefaults}
+            selectedProviderName={selectedProviderName}
+          />
+        );
+      case 'docs':
+        return <DocsTab />;
+      case 'chats':
+      default:
+        return (
+          <ChatsTab
+            filteredChats={filteredChats}
+            currentChatId={currentChatId}
+            onChatSelect={onChatSelect}
+            onDeleteChat={onDeleteChat}
+          />
+        );
     }
-  }, [activeTab, filteredChats, currentChatId, onChatSelect, onDeleteChat]);
-
-  // Add handlers for button grid
-  const handleRetryClick = () => {
-    if (currentChatId) onRetryChat(currentChatId);
-  };
-  
-  const handleNewClick = () => {
-    onNewChat();
-  };
-  
-  const handleSaveClick = () => {
-    if (currentChatId) onSaveChat(currentChatId);
-  };
-  
-  const handleLoadClick = () => {
-    setShowLoadModal(true);
-  };
-  
-  const handleDeleteClick = () => {
-    setShowDeleteModal(true);
-  };
-  
-  const handleExportClick = () => {
-    setShowExportModal(true);
-  };
-  
-  const handleExportFormat = (format: 'md' | 'pdf' | 'json') => {
-    if (currentChatId) onExportChat(currentChatId, format);
-    setShowExportModal(false);
-  };
-
-  // Add states for modals
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [loadSearch, setLoadSearch] = useState('');
-  const [deleteSearch, setDeleteSearch] = useState('');
-  
-  // Filtered chats for load modal
-  const filteredLoadChats = loadSearch
-    ? chats.filter(chat => chat.title.toLowerCase().includes(loadSearch.toLowerCase()))
-    : chats;
-  // Filtered chats for delete modal
-  const filteredDeleteChats = deleteSearch
-    ? chats.filter(chat => chat.title.toLowerCase().includes(deleteSearch.toLowerCase()))
-    : chats;
-
-  const toggleCollapse = useCallback(() => {
-    setCollapsed(!collapsed);
-  }, [collapsed]);
+  }, [
+    activeTab, 
+    loading,
+    providers,
+    models,
+    personas,
+    provider,
+    model,
+    persona,
+    mode,
+    maxTokens,
+    temperature,
+    audioResponse,
+    loadingModels,
+    theme,
+    toggleTheme,
+    handleProviderChange,
+    setMode,
+    handleModelChange,
+    handlePersonaChange,
+    handleMaxTokensChange,
+    setTemperature, 
+    setAudioResponse,
+    handleSaveDefaults,
+    selectedProviderName,
+    filteredChats,
+    currentChatId,
+    onChatSelect,
+    onDeleteChat
+  ]);
 
   return (
     <>
@@ -1063,68 +1490,17 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
           <div className="flex-1 overflow-hidden flex flex-col">
             {renderTab()}
             
-            {/* Button grid - add back */}
-            <div className="px-4 py-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  className={`${
-                    currentChatId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-                  } text-white font-semibold py-2 rounded`}
-                  onClick={handleRetryClick}
-                  disabled={!currentChatId}
-                  title={!currentChatId ? 'Select a chat first' : 'Retry the last message with the current model'}
-                >
-                  Retry
-                </button>
-                <button
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded"
-                  onClick={handleNewClick}
-                  title="Start a new conversation"
-                >
-                  New
-                </button>
-                <button
-                  className={`${
-                    currentChatId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-                  } text-white font-semibold py-2 rounded`}
-                  onClick={handleSaveClick}
-                  disabled={!currentChatId}
-                  title={!currentChatId ? 'Select a chat first' : 'Save the current conversation'}
-                >
-                  Save
-                </button>
-                <button
-                  className={`${
-                    chats.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-                  } text-white font-semibold py-2 rounded`}
-                  onClick={handleLoadClick}
-                  disabled={chats.length === 0}
-                  title={chats.length === 0 ? 'No saved chats available' : 'Load a saved conversation'}
-                >
-                  Load
-                </button>
-                <button
-                  className={`${
-                    chats.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-                  } text-white font-semibold py-2 rounded`}
-                  onClick={handleDeleteClick}
-                  disabled={chats.length === 0}
-                  title={chats.length === 0 ? 'No saved chats available' : 'Delete a saved conversation'}
-                >
-                  Delete
-                </button>
-                <button
-                  className={`${
-                    currentChatId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-300 cursor-not-allowed'
-                  } text-white font-semibold py-2 rounded`}
-                  onClick={handleExportClick}
-                  disabled={!currentChatId}
-                  title={!currentChatId ? 'Select a chat first' : 'Export the current conversation'}
-                >
-                  Export
-                </button>
-              </div>
-            </div>
+            {/* Button grid */}
+            <ButtonGrid
+              currentChatId={currentChatId}
+              chats={chatsArray}
+              onRetry={handleRetryClick}
+              onNew={handleNewClick}
+              onSave={handleSaveClick}
+              onLoad={handleLoadClick}
+              onDelete={handleDeleteClick}
+              onExport={handleExportClick}
+            />
             
             {/* Provider | Model display at the very bottom */}
             <div className="mb-3 mt-2 px-4 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center">
@@ -1136,118 +1512,84 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
         )}
       </div>
       
-      {/* Add back modals */}
       {/* Load Modal */}
       {showLoadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-2">Load Conversation</h2>
-            <input
-              className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
-              placeholder="Search conversations..."
-              value={loadSearch}
-              onChange={e => setLoadSearch(e.target.value)}
-            />
-            <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredLoadChats.length === 0 ? (
-                <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
-              ) : (
-                filteredLoadChats.map(chat => (
-                  <div
-                    key={chat.chat_id}
-                    className="py-2 px-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded transition-colors"
-                    onClick={() => { onChatSelect(chat.chat_id); setShowLoadModal(false); }}
-                  >
-                    <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="flex justify-end mt-4">
-              <button
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-                onClick={() => setShowLoadModal(false)}
-              >
-                Close
-              </button>
-            </div>
+        <Modal title="Load Conversation" onClose={() => setShowLoadModal(false)}>
+          <input
+            className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+            placeholder="Search conversations..."
+            value={loadSearch}
+            onChange={e => setLoadSearch(e.target.value)}
+          />
+          <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+            {filteredLoadChats.length === 0 ? (
+              <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+            ) : (
+              filteredLoadChats.map(chat => (
+                <div
+                  key={chat.chat_id}
+                  className="py-2 px-2 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  onClick={() => { onChatSelect(chat.chat_id); setShowLoadModal(false); }}
+                >
+                  <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                </div>
+              ))
+            )}
           </div>
-        </div>
+        </Modal>
       )}
       
       {/* Delete Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-2">Delete Conversation</h2>
-            <input
-              className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
-              placeholder="Search conversations..."
-              value={deleteSearch}
-              onChange={e => setDeleteSearch(e.target.value)}
-            />
-            <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredDeleteChats.length === 0 ? (
-                <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
-              ) : (
-                filteredDeleteChats.map(chat => (
-                  <div
-                    key={chat.chat_id}
-                    className="py-2 px-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
-                    onClick={() => { onDeleteChat(chat.chat_id); setShowDeleteModal(false); }}
-                  >
-                    <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="flex justify-end mt-4">
-              <button
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-                onClick={() => setShowDeleteModal(false)}
-              >
-                Close
-              </button>
-            </div>
+        <Modal title="Delete Conversation" onClose={() => setShowDeleteModal(false)}>
+          <input
+            className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded mb-4 bg-white dark:bg-gray-800"
+            placeholder="Search conversations..."
+            value={deleteSearch}
+            onChange={e => setDeleteSearch(e.target.value)}
+          />
+          <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-700">
+            {filteredDeleteChats.length === 0 ? (
+              <div className="text-gray-400 text-sm italic py-4 text-center">No conversations found.</div>
+            ) : (
+              filteredDeleteChats.map(chat => (
+                <div
+                  key={chat.chat_id}
+                  className="py-2 px-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors"
+                  onClick={() => { onDeleteChat(chat.chat_id); setShowDeleteModal(false); }}
+                >
+                  <span className="font-medium text-gray-800 dark:text-gray-100">{chat.title || 'Untitled Chat'}</span>
+                </div>
+              ))
+            )}
           </div>
-        </div>
+        </Modal>
       )}
       
       {/* Export Modal */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-xs">
-            <h2 className="text-lg font-bold mb-4">Export Conversation</h2>
-            <div className="flex flex-col space-y-2">
-              <button
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                onClick={() => handleExportFormat('md')}
-              >
-                Export as Markdown
-              </button>
-              <button
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                onClick={() => handleExportFormat('pdf')}
-              >
-                Export as PDF
-              </button>
-              <button
-                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                onClick={() => handleExportFormat('json')}
-              >
-                Export as JSON
-              </button>
-            </div>
-            <div className="flex justify-end mt-4">
-              <button
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-                onClick={() => setShowExportModal(false)}
-              >
-                Close
-              </button>
-            </div>
+        <Modal title="Export Conversation" onClose={() => setShowExportModal(false)}>
+          <div className="flex flex-col space-y-2">
+            <button
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              onClick={() => handleExportFormat('md')}
+            >
+              Export as Markdown
+            </button>
+            <button
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+              onClick={() => handleExportFormat('pdf')}
+            >
+              Export as PDF
+            </button>
+            <button
+              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+              onClick={() => handleExportFormat('json')}
+            >
+              Export as JSON
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );
