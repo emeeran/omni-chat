@@ -21,7 +21,80 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
-  const PAIRS_PER_PAGE = 1;
+
+  // Custom pagination hook to ensure stable pagination
+  const usePagination = (messages: Message[], itemsPerPage = 1) => {
+    const [currentPage, setCurrentPage] = useState(0);
+    
+    // Get all user message indices
+    const userIndices = useMemo(() => {
+      return messages
+        .map((msg: Message, idx: number) => msg.role === 'user' ? idx : -1)
+        .filter((idx: number) => idx !== -1);
+    }, [messages]);
+    
+    // Calculate total pages
+    const totalPages = Math.max(1, Math.ceil(userIndices.length / itemsPerPage));
+    
+    // Ensure page is in bounds
+    useEffect(() => {
+      if (currentPage >= totalPages) {
+        setCurrentPage(Math.max(0, totalPages - 1));
+      }
+    }, [currentPage, totalPages]);
+    
+    // Go to last page when new messages are added
+    const prevUserCountRef = useRef(userIndices.length);
+    useEffect(() => {
+      if (userIndices.length > prevUserCountRef.current) {
+        setCurrentPage(Math.max(0, totalPages - 1));
+      }
+      prevUserCountRef.current = userIndices.length;
+    }, [userIndices.length, totalPages]);
+    
+    // Reset page when chat changes
+    useEffect(() => {
+      setCurrentPage(0);
+    }, [messages[0]?.message_id]);
+    
+    // Get visible messages for current page
+    const getVisiblePairs = () => {
+      const start = currentPage * itemsPerPage;
+      const end = Math.min(start + itemsPerPage, userIndices.length);
+      const pageUserIndices = userIndices.slice(start, end);
+      
+      return pageUserIndices.map((userIdx: number) => {
+        const userMsg = messages[userIdx];
+        
+        // Find next assistant message
+        let assistantMsg: Message | null = null;
+        for (let i = userIdx + 1; i < messages.length; i++) {
+          if (messages[i].role === 'assistant') {
+            assistantMsg = messages[i];
+            break;
+          }
+        }
+        
+        return { userMsg, assistantMsg };
+      });
+    };
+    
+    return {
+      currentPage,
+      setCurrentPage,
+      totalPages,
+      visiblePairs: getVisiblePairs(),
+      goToNextPage: () => setCurrentPage(Math.min(currentPage + 1, totalPages - 1)),
+      goToPrevPage: () => setCurrentPage(Math.max(0, currentPage - 1)),
+      goToFirstPage: () => setCurrentPage(0),
+      goToLastPage: () => setCurrentPage(Math.max(0, totalPages - 1)),
+      hasNextPage: currentPage < totalPages - 1,
+      hasPrevPage: currentPage > 0
+    };
+  };
+  
+  // Use the pagination hook
+  const pagination = usePagination(chat.messages);
 
   // Memoize scrollToBottom function
   const scrollToBottom = useCallback(() => {
@@ -270,52 +343,6 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
     }
   }, [chat, onUpdateChat]);
 
-  // Group messages into user/assistant pairs
-  const pairs = [];
-  for (let i = 0; i < chat.messages.length; i++) {
-    if (chat.messages[i].role === 'user') {
-      const userMsg = chat.messages[i];
-      const assistantMsg = chat.messages[i + 1] && chat.messages[i + 1].role === 'assistant' ? chat.messages[i + 1] : null;
-      pairs.push({ user: userMsg, assistant: assistantMsg });
-      if (assistantMsg) i++; // skip assistant in next loop
-    }
-  }
-
-  // Pagination logic
-  const totalPages = Math.ceil(pairs.length / PAIRS_PER_PAGE);
-  const paginatedPairs = pairs.slice(page * PAIRS_PER_PAGE, (page + 1) * PAIRS_PER_PAGE);
-
-  // Robust pagination: always keep page in bounds, jump to last page on new pair, and reset on new chat
-  const prevPairsLengthRef = useRef(pairs.length);
-  useEffect(() => {
-    let newPage = page;
-
-    // If chat changes, reset to first page
-    if (chat.chat_id && prevPairsLengthRef.current === 0 && pairs.length > 0) {
-      newPage = 0;
-    }
-
-    // If pairs increased, jump to last page
-    if (pairs.length > prevPairsLengthRef.current) {
-      newPage = Math.max(0, totalPages - 1);
-    }
-
-    // Clamp page to valid range
-    if (newPage > totalPages - 1) {
-      newPage = Math.max(0, totalPages - 1);
-    }
-    if (newPage < 0) {
-      newPage = 0;
-    }
-
-    if (newPage !== page) {
-      setPage(newPage);
-    }
-
-    prevPairsLengthRef.current = pairs.length;
-    // eslint-disable-next-line
-  }, [pairs.length, totalPages, page, chat.chat_id]);
-
   return (
     <div className="relative flex flex-col h-full min-h-0 bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-300">
       {showFallbackMessage && (
@@ -332,66 +359,77 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat }: ChatP
 
       {/* Chat history paginated container */}
       <div className="flex-1 w-full mx-0 mb-0 p-6 bg-white/80 dark:bg-gray-900/80 rounded-none border-0 shadow-inner overflow-y-auto flex flex-col">
-        {pairs.length === 0 ? (
+        {chat.messages.length === 0 ? (
           <div className="text-gray-400 text-sm italic flex items-center justify-center h-full">No messages yet.</div>
         ) : (
-          <div className="w-full max-w-2xl space-y-8">
-            {paginatedPairs.map((pair, idx) => (
-              <div key={pair.user?.message_id || idx} className="flex flex-col gap-2 bg-white dark:bg-gray-800/70 rounded-2xl shadow-md p-4">
-                {/* User message */}
-                <div className="flex items-start justify-end gap-2">
-                  <div className="flex flex-col items-end">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-blue-600 font-semibold">User</span>
-                      <span className="bg-gradient-to-br from-blue-400 to-indigo-400 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">U</span>
-                    </div>
-                    <div className="bg-blue-100 dark:bg-blue-900/40 text-gray-900 dark:text-blue-100 rounded-xl rounded-br-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
-                      <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.user?.content || ''}</ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-                {/* Assistant message */}
-                <div className="flex items-start justify-start gap-2">
-                  <span className="bg-gradient-to-br from-green-400 to-emerald-500 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">A</span>
-                  <div className="flex flex-col items-start">
-                    <span className="text-xs text-purple-600 dark:text-purple-300 font-semibold mb-1">Assistant</span>
-                    <div className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-xl rounded-bl-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
-                      {pair.assistant ? (
-                        <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{pair.assistant.content}</ReactMarkdown>
-                      ) : (
-                        <span className="italic text-gray-400">...</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {/* Timestamp */}
-                <div className="flex justify-center mt-2">
-                  <span className="block text-xs text-gray-400 font-mono select-none">
-                    {pair.assistant
-                      ? `-------------------time-stamp ${new Date(pair.assistant.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
-                      : pair.user
-                        ? `-------------------time-stamp ${new Date(pair.user.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
-                        : ''}
-                  </span>
-                </div>
+          <div className="w-full max-w-2xl space-y-8 mx-auto">            
+            {/* Render message pairs */}
+            {pagination.visiblePairs.length === 0 ? (
+              <div className="text-center italic text-gray-500 py-8">
+                No messages on this page. <button 
+                  onClick={pagination.goToFirstPage} 
+                  className="text-blue-600 hover:underline">Go to first page</button>
               </div>
-            ))}
-
+            ) : (
+              pagination.visiblePairs.map(({ userMsg, assistantMsg }) => (
+                <div key={userMsg.message_id} className="flex flex-col gap-2 bg-white dark:bg-gray-800/70 rounded-2xl shadow-md p-4">
+                  {/* User message */}
+                  <div className="flex items-start justify-end gap-2">
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-blue-600 font-semibold">User</span>
+                        <span className="bg-gradient-to-br from-blue-400 to-indigo-400 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">U</span>
+                      </div>
+                      <div className="bg-blue-100 dark:bg-blue-900/40 text-gray-900 dark:text-blue-100 rounded-xl rounded-br-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                        <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{userMsg.content || ''}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Assistant message */}
+                  <div className="flex items-start justify-start gap-2">
+                    <span className="bg-gradient-to-br from-green-400 to-emerald-500 text-white rounded-full w-7 h-7 flex items-center justify-center font-bold shadow">A</span>
+                    <div className="flex flex-col items-start">
+                      <span className="text-xs text-purple-600 dark:text-purple-300 font-semibold mb-1">Assistant</span>
+                      <div className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-xl rounded-bl-sm px-4 py-2 max-w-[80vw] break-words shadow-sm">
+                        {assistantMsg ? (
+                          <ReactMarkdown className="prose dark:prose-invert prose-sm max-w-none">{assistantMsg.content}</ReactMarkdown>
+                        ) : (
+                          <span className="italic text-gray-400">...</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Timestamp */}
+                  <div className="flex justify-center mt-2">
+                    <span className="block text-xs text-gray-400 font-mono select-none">
+                      {assistantMsg
+                        ? `-------------------time-stamp ${new Date(assistantMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                        : userMsg
+                          ? `-------------------time-stamp ${new Date(userMsg.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} --------------------`
+                          : ''}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+            
             {/* Pagination controls */}
-            {totalPages > 1 && (
+            {pagination.totalPages > 1 && (
               <div className="flex justify-between mt-6">
                 <button
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded hover:shadow-md disabled:opacity-50 disabled:bg-gray-400 transition-all"
+                  onClick={pagination.goToPrevPage}
+                  disabled={!pagination.hasPrevPage}
                 >
                   {'<<<Previsouse Page'}
                 </button>
-                <span className="flex-1 text-center text-xs text-gray-500 dark:text-gray-400 self-center" style={{letterSpacing: '0.1em'}}></span>
+                <span className="text-center text-sm text-gray-600 dark:text-gray-300 font-medium self-center bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
+                  Page {pagination.currentPage + 1} of {pagination.totalPages}
+                </span>
                 <button
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded hover:shadow-md disabled:opacity-50 disabled:bg-gray-400 transition-all"
+                  onClick={pagination.goToNextPage}
+                  disabled={!pagination.hasNextPage}
                 >
                   {'Next Page >>>>>>'}
                 </button>
