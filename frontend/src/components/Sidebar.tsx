@@ -10,6 +10,13 @@ import {
 import { ChatSummary, getProviders, getModels, getPersonas, Provider, Model, getAllModels } from '@/lib/api';
 import { SidebarHeader } from './SidebarHeader';
 import { saveAs } from 'file-saver';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import SettingsTab from './SettingsTab';
+import DocsTab from './DocsTab';
+import ChatsTab from './ChatsTab';
+import ButtonGrid from './ButtonGrid';
+import Modal from './Modal';
 
 // Add styles at the top of the file
 const globalStyles = `
@@ -48,6 +55,7 @@ interface DefaultSettings {
   model: string;
   persona: string;
   maxTokens: number;
+  [key: string]: any;
 }
 
 type SidebarProps = {
@@ -63,8 +71,8 @@ type SidebarProps = {
   onAudioResponseChange?: (enabled: boolean) => void;
 };
 
-// Custom hook for local storage
-function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
+// Custom hook for local storage with proper typing for function updates
+function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((prevState: T) => T)) => void] {
   // State to store our value
   const [storedValue, setStoredValue] = useState<T>(() => {
     if (typeof window === 'undefined') return initialValue;
@@ -81,18 +89,24 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => voi
   });
   
   // Function to update stored value and localStorage
-  const setValue = useCallback((value: T) => {
+  const setValue = useCallback((value: T | ((prevState: T) => T)) => {
     try {
+      // Allow value to be a function
+      const valueToStore = typeof value === 'function'
+        ? (value as ((prevState: T) => T))(storedValue)
+        : value;
+      
       // Save state
-      setStoredValue(value);
+      setStoredValue(valueToStore);
+      
       // Save to local storage
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(value));
+        window.localStorage.setItem(key, JSON.stringify(valueToStore));
       }
     } catch (error) {
       console.error("Error saving to localStorage:", error);
     }
-  }, [key]);
+  }, [key, storedValue]);
   
   return [storedValue, setValue];
 }
@@ -101,94 +115,90 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => voi
 function useApiData() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
-  const [allModels, setAllModels] = useState<{[providerId: string]: Model[]}>({});
-  const [personas, setPersonas] = useState<string[]>([]);
+  const [personas, setPersonas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingModels, setLoadingModels] = useState(false);
-  const [defaults] = useLocalStorage<DefaultSettings>('omniChatDefaults', {
-    provider: 'openai',
-    model: 'gpt-4o',
-    persona: 'Friendly Assistant',
-    maxTokens: 4000
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [allModels, setAllModels] = useState<{[key: string]: Model[]}>({});
   
-  // Fetch initial data
-  const fetchInitialData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Fetch providers
-      const providersData = await getProviders();
-      setProviders(providersData);
-      
-      // Determine which provider to use
-      let defaultProviderId = defaults.provider;
-      
-      // Verify the provider exists, otherwise use the first one
-      if (!providersData.some(p => p.id === defaultProviderId)) {
-        const defaultProvider = providersData.find(p => p.default) || providersData[0];
-        if (defaultProvider) {
-          defaultProviderId = defaultProvider.id;
-        }
-      }
-      
-      // Fetch all models for all providers
-      const allModelsData = await getAllModels(providersData);
-      setAllModels(allModelsData);
-      
-      // Set the current models to the ones for the default provider
-      if (allModelsData[defaultProviderId]) {
-        setModels(allModelsData[defaultProviderId]);
-      } else {
-        // Fallback to fetching just the default provider's models
-        const modelsData = await getModels(defaultProviderId);
-        setModels(modelsData);
-      }
-      
-      // Fetch personas
-      const personasData = await getPersonas();
-      const personaNames = personasData.map(p => typeof p === 'string' ? p : p.name);
-      setPersonas(personaNames);
-    } catch (error) {
-      console.error('Error loading initial data:', error);
-    } finally {
-      setLoading(false);
+  // Optimized: Only fetch if not cached, otherwise return cached and fetch in background for freshness
+  const fetchModelsForProvider = useCallback(async (providerId: string) => {
+    if (allModels[providerId]) {
+      setModels(allModels[providerId]);
+      // Optionally, fetch in background for freshness
+      (async () => {
+        try {
+          const response = await fetch(`/api/models?provider=${providerId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setAllModels(prev => ({ ...prev, [providerId]: data }));
+            setModels(data);
+          }
+        } catch {}
+      })();
+      return allModels[providerId];
     }
-  }, [defaults.provider]);
+    setLoadingModels(true);
+    try {
+      const response = await fetch(`/api/models?provider=${providerId}`);
+      if (!response.ok) throw new Error(`Error fetching models: ${response.statusText}`);
+      const data = await response.json();
+      setAllModels(prev => ({ ...prev, [providerId]: data }));
+      setModels(data);
+      return data;
+    } catch (err) {
+      setError(`Failed to fetch models: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    } finally {
+      setLoadingModels(false);
+    }
+  }, [allModels]);
   
-  // Function to set models for a specific provider - using cached models when available
-  const switchToProvider = useCallback((providerId: string) => {
-    if (!providerId) return;
-    
-    // If we already have models for this provider, use them
+  // Memoized switchToProvider
+  const switchToProvider = useCallback((providerId: string): Model[] => {
+    if (!providerId) return [];
     if (allModels[providerId]) {
       setModels(allModels[providerId]);
       return allModels[providerId];
     }
-    
-    // Otherwise fetch them
-    return fetchModelsForProvider(providerId);
-  }, [allModels]);
+    fetchModelsForProvider(providerId);
+    return [];
+  }, [allModels, fetchModelsForProvider]);
   
-  // Fetch models for a specific provider
-  const fetchModelsForProvider = useCallback(async (providerId: string) => {
-    if (!providerId) return [];
+  // Define fetchInitialData function to fetch providers, models, and personas
+  const fetchInitialData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     
-    setLoadingModels(true);
     try {
-      const modelsData = await getModels(providerId);
+      // Fetch providers using the API library function
+      const providersData = await getProviders();
+      setProviders(providersData);
       
-      // Update both the current models and the cached allModels
-      setModels(modelsData);
-      setAllModels(prev => ({
-        ...prev,
-        [providerId]: modelsData
-      }));
+      // Find default provider
+      const defaultProvider = providersData.find((p: Provider) => p.default) || providersData[0];
+      if (defaultProvider) {
+        setLoadingModels(true);
+        // Fetch models for default provider using the API library function
+        const modelsData = await getModels(defaultProvider.id);
+        setModels(modelsData);
+        
+        // Store in cache
+        setAllModels(prev => ({
+          ...prev,
+          [defaultProvider.id]: modelsData
+        }));
+        setLoadingModels(false);
+      }
       
-      return modelsData;
-    } catch (error) {
-      console.error(`Error fetching models for ${providerId}:`, error);
-      return [];
-    } finally {
+      // Fetch personas using the API library function
+      const personasData = await getPersonas();
+      setPersonas(personasData);
+      
+      setLoading(false);
+    } catch (err) {
+      setError(`Failed to fetch initial data: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
       setLoadingModels(false);
     }
   }, []);
@@ -205,6 +215,7 @@ function useApiData() {
     personas,
     loading,
     loadingModels,
+    error,
     fetchModelsForProvider,
     switchToProvider
   };
@@ -560,652 +571,6 @@ ModelPreview.displayName = 'ModelPreview';
 
 SettingsControl.displayName = 'SettingsControl';
 
-// Replace the SettingsTab component with this optimized version
-
-const SettingsTab = memo(({ 
-  loading, 
-  providers, 
-  models, 
-  allModels,
-  personas,
-  provider, 
-  model, 
-  persona, 
-  mode, 
-  maxTokens, 
-  temperature, 
-  audioResponse,
-  loadingModels,
-  theme,
-  toggleTheme,
-  handleProviderChange,
-  setMode,
-  setModel,
-  setPersona,
-  setMaxTokens,
-  setTemperature,
-  setAudioResponse,
-  handleSaveDefaults,
-  selectedProviderName,
-  pluginsEnabled,
-  setPluginsEnabled,
-  webSearchEnabled,
-  setWebSearchEnabled,
-  codeInterpreterEnabled,
-  setCodeInterpreterEnabled,
-  imageGeneratorEnabled,
-  setImageGeneratorEnabled,
-  fileAnalysisEnabled,
-  setFileAnalysisEnabled,
-  apiKeys,
-  setApiKeys,
-  setShowApiKeyModal,
-  setApiKeyProvider,
-  setApiKey
-}: {
-  loading: boolean;
-  providers: Provider[];
-  models: Model[];
-  allModels: {[providerId: string]: Model[]};
-  personas: string[];
-  provider: string;
-  model: string;
-  persona: string;
-  mode: string;
-  maxTokens: number;
-  temperature: number;
-  audioResponse: boolean;
-  loadingModels: boolean;
-  theme: string;
-  toggleTheme: () => void;
-  handleProviderChange: (providerId: string) => void;
-  setMode: (mode: string) => void;
-  setModel: (model: string) => void;
-  setPersona: (persona: string) => void;
-  setMaxTokens: (tokens: number) => void;
-  setTemperature: (temp: number) => void;
-  setAudioResponse: (enabled: boolean) => void;
-  handleSaveDefaults: () => void;
-  selectedProviderName: string;
-  pluginsEnabled: boolean;
-  setPluginsEnabled: (enabled: boolean) => void;
-  webSearchEnabled: boolean;
-  setWebSearchEnabled: (enabled: boolean) => void;
-  codeInterpreterEnabled: boolean;
-  setCodeInterpreterEnabled: (enabled: boolean) => void;
-  imageGeneratorEnabled: boolean;
-  setImageGeneratorEnabled: (enabled: boolean) => void;
-  fileAnalysisEnabled: boolean;
-  setFileAnalysisEnabled: (enabled: boolean) => void;
-  apiKeys: {[key: string]: string};
-  setApiKeys: (keys: {[key: string]: string}) => void;
-  setShowApiKeyModal: (show: boolean) => void;
-  setApiKeyProvider: (provider: string) => void;
-  setApiKey: (key: string) => void;
-}) => {
-  // Memoize calculated values
-  const calculatedTokens = useMemo(() => 
-    Math.floor((maxTokens / 100) * 8000), 
-    [maxTokens]
-  );
-  
-  const temperatureValue = useMemo(() => 
-    temperature / 100, 
-    [temperature]
-  );
-  
-  const providerWebsite = useMemo(() => 
-    providers.find(p => p.id === provider)?.website, 
-    [providers, provider]
-  );
-
-  // Memoize event handlers to prevent unnecessary re-renders
-  const handleTokenChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setMaxTokens(parseInt(e.target.value));
-  }, [setMaxTokens]);
-
-  const handleTemperatureChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setTemperature(parseInt(e.target.value));
-  }, [setTemperature]);
-
-  const setTokenPreset = useCallback((tokens: number) => {
-    setMaxTokens(Math.floor((tokens / 8000) * 100));
-  }, [setMaxTokens]);
-
-  const handleAudioToggle = useCallback((enabled: boolean) => {
-    setAudioResponse(enabled);
-  }, [setAudioResponse]);
-  
-  // For the loading state, use a visually pleasing skeleton
-  if (loading) {
-    return (
-      <div className="p-4 space-y-4">
-        <div className="flex justify-between items-center mb-3">
-          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 animate-pulse"></div>
-          <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse"></div>
-        </div>
-        {[1, 2, 3, 4].map(i => (
-          <div key={i} className="space-y-2">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20 animate-pulse"></div>
-            <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  
-      return (
-        <div className="p-4 space-y-4 max-h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Settings</h2>
-        {/* Theme toggle with animation */}
-            <button
-              onClick={toggleTheme}
-          className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors duration-300 hover:shadow-md"
-              aria-label="Toggle theme"
-            >
-          {theme === 'dark' 
-            ? <Moon className="w-5 h-5 text-yellow-500 animate-fadeIn" /> 
-            : <Sun className="w-5 h-5 text-yellow-500 animate-fadeIn" />
-          }
-            </button>
-          </div>
-
-              {/* Mode */}
-              <SettingsControl
-                loading={loading}
-                label="Chat Mode"
-                value={mode}
-                options={['Chat', 'RAG', 'Image']}
-                onChange={setMode}
-              />
-
-      {/* Provider with brand colors */}
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-1.5">
-          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Provider</label>
-        </div>
-        <div className="relative">
-          <select
-                value={provider}
-            onChange={(e) => handleProviderChange(e.target.value)}
-            className="w-full pl-3.5 pr-8 py-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none appearance-none shadow-sm"
-          >
-            {providers.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-        </div>
-      </div>
-      
-      {/* Model Preview with enhanced UI */}
-      <ModelPreview 
-        models={models}
-        allModels={allModels}
-        provider={provider}
-        selectedModel={model}
-        onModelSelect={setModel}
-                isLoading={loadingModels}
-        showAllProviders={true}
-              />
-
-              {/* Persona */}
-              <SettingsControl
-                loading={loading}
-                label="Persona"
-                value={persona}
-                options={personas}
-                onChange={setPersona}
-              />
-
-              {/* Max Tokens */}
-      <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Max Tokens</label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-            {calculatedTokens}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={maxTokens}
-          onChange={handleTokenChange}
-                  className="w-full h-2 bg-gradient-to-r from-blue-100 to-blue-300 dark:from-blue-900/30 dark:to-blue-600 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Short</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Long</span>
-              </div>
-
-              {/* Quick Token Presets */}
-        <div className="mt-3 flex flex-wrap gap-2">
-                <button
-            onClick={() => setTokenPreset(2000)}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-150"
-                >
-                  2000
-                </button>
-                <button
-            onClick={() => setTokenPreset(4000)}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200 dark:border-blue-800 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm transition-all duration-150"
-                >
-                  4000
-                </button>
-                <button
-            onClick={() => setTokenPreset(8000)}
-                  className="px-2.5 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-sm transition-all duration-150"
-                >
-                  8000
-                </button>
-        </div>
-              </div>
-
-              {/* Temperature */}
-      <div className="mb-5 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Creativity</label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-            {temperatureValue}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={temperature}
-          onChange={handleTemperatureChange}
-                  className="w-full h-2 bg-gradient-to-r from-gray-200 to-purple-300 dark:from-gray-700 dark:to-purple-600 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Precise</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Creative</span>
-                </div>
-              </div>
-
-              {/* Audio Response */}
-      <div className="mb-6 bg-white/40 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">Voice Response</label>
-                  <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-                    <button
-              onClick={() => handleAudioToggle(false)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${!audioResponse
-                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                        : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                    >
-                      Off
-                    </button>
-                    <button
-              onClick={() => handleAudioToggle(true)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors duration-200 ${audioResponse
-                        ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-800 dark:text-gray-200'
-                        : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                    >
-                      On
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-      {/* Plugin Support */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">AI Plugins</label>
-          <div className="relative inline-block w-10 align-middle select-none">
-            <input
-              type="checkbox"
-              name="toggle"
-              id="toggle"
-              className="sr-only"
-              checked={pluginsEnabled}
-              onChange={() => setPluginsEnabled(!pluginsEnabled)}
-            />
-            <label
-              htmlFor="toggle"
-              className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
-              onClick={() => setPluginsEnabled(!pluginsEnabled)}
-            >
-              <span
-                className={`block h-6 w-6 rounded-full bg-white shadow transform ${pluginsEnabled ? 'translate-x-4' : 'translate-x-0'} transition-transform duration-200 ease-in-out dark:bg-blue-500`}
-              ></span>
-            </label>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-            <input 
-              type="checkbox" 
-              className="rounded text-blue-500" 
-              checked={webSearchEnabled}
-              onChange={() => setWebSearchEnabled(!webSearchEnabled)}
-            />
-            <span className="text-xs">Web Search</span>
-          </div>
-          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-            <input 
-              type="checkbox" 
-              className="rounded text-blue-500" 
-              checked={codeInterpreterEnabled}
-              onChange={() => setCodeInterpreterEnabled(!codeInterpreterEnabled)}
-            />
-            <span className="text-xs">Code Interpreter</span>
-          </div>
-          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-            <input 
-              type="checkbox" 
-              className="rounded text-blue-500" 
-              checked={imageGeneratorEnabled}
-              onChange={() => setImageGeneratorEnabled(!imageGeneratorEnabled)}
-            />
-            <span className="text-xs">Image Generator</span>
-          </div>
-          <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
-            <input 
-              type="checkbox" 
-              className="rounded text-blue-500" 
-              checked={fileAnalysisEnabled}
-              onChange={() => setFileAnalysisEnabled(!fileAnalysisEnabled)}
-            />
-            <span className="text-xs">File Analysis</span>
-          </div>
-        </div>
-      </div>
-
-      {/* API Keys Management */}
-      <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
-        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
-        <div className="space-y-2">
-          {Object.entries(apiKeys).map(([provider, key]) => (
-            <div key={provider} className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
-              <div className="flex items-center">
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                <span className="text-xs">{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button 
-                  className="text-xs text-blue-600 dark:text-blue-400"
-                  onClick={() => {
-                    setApiKeyProvider(provider);
-                    setApiKey(key === '***************' ? '' : key);
-                    setShowApiKeyModal(true);
-                  }}
-                >
-                  Edit
-                </button>
-                <button 
-                  className="text-xs text-red-600 dark:text-red-400"
-                  onClick={() => {
-                    const newApiKeys = {...apiKeys};
-                    delete newApiKeys[provider];
-                    setApiKeys(newApiKeys);
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
-          <button 
-            className="w-full mt-2 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-            onClick={() => {
-              setApiKeyProvider('');
-              setApiKey('');
-              setShowApiKeyModal(true);
-            }}
-          >
-            + Add API key
-          </button>
-                    </div>
-                  </div>
-
-              {/* Save as Defaults Button */}
-              <div className="mb-4 pt-2">
-                <button
-                  onClick={handleSaveDefaults}
-                  className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl hover:shadow-md text-sm flex items-center justify-center transition-all duration-200"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save as Default Settings
-                </button>
-              </div>
-
-              {/* Provider Link */}
-      {providerWebsite && (
-                <div className="mt-5 mb-3 text-center">
-                  <a
-            href={providerWebsite}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center"
-                  >
-                    View {selectedProviderName} provider details
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                </div>
-          )}
-        </div>
-      );
-});
-
-SettingsTab.displayName = 'SettingsTab';
-
-const DocsTab = memo(() => {
-      return (
-        <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Documents</h2>
-          </div>
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700">
-            <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
-            <p>No documents uploaded yet</p>
-            <button className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg flex items-center text-sm hover:bg-blue-200 dark:hover:bg-blue-800/30 transition-colors duration-200">
-              <Upload className="w-4 h-4 mr-2" />
-              Upload Document
-            </button>
-          </div>
-        </div>
-      );
-});
-
-DocsTab.displayName = 'DocsTab';
-
-const ChatsTab = memo(({ 
-  filteredChats, 
-  currentChatId, 
-  onChatSelect, 
-  onDeleteChat 
-}: {
-  filteredChats: ChatSummary[];
-  currentChatId: string;
-  onChatSelect: (id: string) => void;
-  onDeleteChat: (id: string) => void;
-}) => {
-      return (
-        <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-          <div className="p-4">
-            {/* Chat List */}
-            <div className="space-y-2">
-              {filteredChats.length > 0 ? (
-                filteredChats.map(chat => (
-                  <button
-                    key={chat.chat_id}
-                    onClick={() => onChatSelect(chat.chat_id)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start group transition-colors duration-200 ${
-                      chat.chat_id === currentChatId
-                        ? 'bg-blue-100 dark:bg-blue-900/20 border-blue-500 dark:border-blue-800'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center mb-1">
-                        <span className={`text-sm font-medium truncate ${
-                          chat.chat_id === currentChatId
-                            ? 'text-blue-700 dark:text-blue-400'
-                            : 'text-gray-800 dark:text-gray-200'
-                        }`}>
-                          {chat.title || 'Untitled Chat'}
-                        </span>
-                      </div>
-                      <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
-                        <span className="truncate">
-                          {new Date(chat.updated_at).toLocaleDateString()}
-                        </span>
-                        <span className="mx-1">·</span>
-                        <span className="truncate">{chat.provider}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteChat(chat.chat_id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-opacity duration-200"
-                      aria-label="Delete chat"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </button>
-                ))
-              ) : null}
-            </div>
-          </div>
-        </div>
-      );
-});
-
-ChatsTab.displayName = 'ChatsTab';
-
-// Reusable Modal component
-const Modal = memo(({
-  title,
-  onClose,
-  children
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) => {
-  // Close on escape key press
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold mb-2">{title}</h2>
-        {children}
-        <div className="flex justify-end mt-4">
-          <button
-            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-Modal.displayName = 'Modal';
-
-// ButtonGrid component for action buttons
-const ButtonGrid = memo(({
-  currentChatId,
-  chats,
-  onRetry,
-  onNew,
-  onSave,
-  onLoad,
-  onDelete,
-  onExport,
-}: {
-  currentChatId: string;
-  chats: ChatSummary[];
-  onRetry: () => void;
-  onNew: () => void;
-  onSave: () => void;
-  onLoad: () => void;
-  onDelete: () => void;
-  onExport: () => void;
-}) => {
-  // Grid structure
-  const buttons = [
-    {
-      label: 'Retry',
-      onClick: onRetry,
-      disabled: !currentChatId,
-      title: !currentChatId ? 'Select a chat first' : 'Retry the last message with the current model',
-    },
-    {
-      label: 'New',
-      onClick: onNew,
-      disabled: false,
-      title: 'Start a new conversation',
-    },
-    {
-      label: 'Save',
-      onClick: onSave,
-      disabled: !currentChatId,
-      title: !currentChatId ? 'Select a chat first' : 'Save the current conversation',
-    },
-    {
-      label: 'Load',
-      onClick: onLoad,
-      disabled: chats.length === 0,
-      title: chats.length === 0 ? 'No saved chats available' : 'Load a saved conversation',
-    },
-    {
-      label: 'Delete',
-      onClick: onDelete,
-      disabled: chats.length === 0,
-      title: chats.length === 0 ? 'No saved chats available' : 'Delete a saved conversation',
-    },
-    {
-      label: 'Export',
-      onClick: onExport,
-      disabled: !currentChatId,
-      title: !currentChatId ? 'Select a chat first' : 'Export the current conversation',
-    },
-  ];
-
-  return (
-    <div className="px-4 py-3">
-      <div className="grid grid-cols-3 gap-2">
-        {buttons.map((button, index) => (
-          <button
-            key={index}
-            className={`${
-              button.disabled 
-                ? 'bg-blue-300 dark:bg-blue-800/50 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600'
-            } text-white font-semibold py-2 rounded transition-colors`}
-            onClick={button.onClick}
-            disabled={button.disabled}
-            title={button.title}
-          >
-            {button.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-});
-
-ButtonGrid.displayName = 'ButtonGrid';
-
 export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat, onChatSelect, onDeleteChat, onSaveChat, onExportChat, onRetryChat, onAudioResponseChange }: SidebarProps) {
   // State
   const [searchQuery, setSearchQuery] = useState('');
@@ -1271,7 +636,8 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     allModels, 
     personas, 
     loading, 
-    loadingModels, 
+    loadingModels,
+    error: apiError, 
     fetchModelsForProvider,
     switchToProvider
   } = useApiData();
@@ -1289,8 +655,8 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   
   const router = useRouter();
 
-  // Theme handling
-  const [theme, setTheme] = useLocalStorage<string>('theme', 
+  // Theme handling - use the correct type for theme
+  const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 
     typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches 
       ? 'dark' 
       : 'light'
@@ -1364,7 +730,11 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
 
   // Helper function to update a single setting
   const updateSetting = useCallback(<K extends keyof DefaultSettings>(key: K, value: DefaultSettings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings((prev) => {
+      const updated = { ...prev };
+      updated[key] = value;
+      return updated;
+    });
   }, [setSettings]);
 
   // Update models when provider changes
@@ -1387,11 +757,11 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
   }, [provider, model, models, updateSetting]);
 
   // Handle provider change
-  const handleProviderChange = useCallback((newProviderId: string) => {
-    updateSetting('provider', newProviderId);
+  const handleProviderChange = useCallback((newProvider: string) => {
+    updateSetting('provider', newProvider);
     
     // Use cached models if available, otherwise fetch them
-    const providerModels = switchToProvider(newProviderId);
+    const providerModels = switchToProvider(newProvider);
     
     // If we have models for this provider, ensure the model is compatible
     if (providerModels && providerModels.length > 0) {
@@ -1446,7 +816,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
 
   // Toggle theme
   const toggleTheme = useCallback(() => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
   }, [setTheme]);
 
   // Action handlers
@@ -1479,18 +849,18 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     setShowExportModal(false);
   }, [currentChatId, onExportChat]);
 
-  // Add the handleSaveDefaults function before renderTab
+  // Fix handleSaveDefaults to use the correct typing
   const handleSaveDefaults = useCallback(() => {
-    // Save current settings as defaults
-    setSettings({
+    const calculatedTokens = Math.round(1000 + (maxTokens / 100) * 15000);
+    setSettings(prev => ({
+      ...prev,
       provider,
       model,
       persona,
-      maxTokens
-    });
-    // Show feedback to user
-    alert('Settings saved as defaults!');
-  }, [setSettings, provider, model, persona, maxTokens]);
+      maxTokens: calculatedTokens
+    }));
+    toast.success("Settings saved as defaults");
+  }, [provider, model, persona, maxTokens, setSettings, toast]);
 
   // Add renderTab function inside the component
   const renderTab = useCallback(() => {
@@ -1554,7 +924,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     }
   }, [
     activeTab, 
-    loading,
+    loading,  // Ensure only defined variables are used
     providers,
     models,
     personas,
@@ -1565,7 +935,6 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     maxTokens,
     temperature,
     audioResponse,
-    loadingModels,
     theme,
     toggleTheme,
     handleProviderChange,
@@ -1573,7 +942,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
     handleModelChange,
     handlePersonaChange,
     handleMaxTokensChange,
-    setTemperature, 
+    setTemperature,
     setAudioResponse,
     handleSaveDefaults,
     selectedProviderName,
@@ -1660,16 +1029,84 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                       <span className="text-xs text-gray-500 dark:text-gray-400">Long Memory</span>
                     </div>
                   </div>
+                  
+                  {/* AI Plugins Section */}
+                  <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300">AI Plugins</h3>
+                      <div className="relative inline-block w-10 align-middle select-none">
+                        <input
+                          type="checkbox"
+                          name="drawer-toggle"
+                          id="drawer-toggle"
+                          className="sr-only"
+                          checked={pluginsEnabled}
+                          onChange={() => setPluginsEnabled(!pluginsEnabled)}
+                        />
+                        <label
+                          htmlFor="drawer-toggle"
+                          className="block h-6 rounded-full overflow-hidden cursor-pointer bg-gray-300 dark:bg-gray-700 transition-colors duration-200"
+                        >
+                          <span
+                            className={`block h-6 w-6 rounded-full bg-white shadow transform ${pluginsEnabled ? 'translate-x-4' : 'translate-x-0'} transition-transform duration-200 ease-in-out dark:bg-blue-500`}
+                          ></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={webSearchEnabled}
+                          onChange={() => setWebSearchEnabled(!webSearchEnabled)}
+                          disabled={!pluginsEnabled}
+                        />
+                        <span className="text-xs">Web Search</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={codeInterpreterEnabled}
+                          onChange={() => setCodeInterpreterEnabled(!codeInterpreterEnabled)}
+                          disabled={!pluginsEnabled}
+                        />
+                        <span className="text-xs">Code Interpreter</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={imageGeneratorEnabled}
+                          onChange={() => setImageGeneratorEnabled(!imageGeneratorEnabled)}
+                          disabled={!pluginsEnabled}
+                        />
+                        <span className="text-xs">Image Generator</span>
+                      </div>
+                      <div className="flex items-center space-x-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-white/60 dark:bg-gray-800/60">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-500" 
+                          checked={fileAnalysisEnabled}
+                          onChange={() => setFileAnalysisEnabled(!fileAnalysisEnabled)}
+                          disabled={!pluginsEnabled}
+                        />
+                        <span className="text-xs">File Analysis</span>
+                      </div>
+                    </div>
+                  </div>
+                  
                   {/* API Keys Management */}
                   <div className="mb-4 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">API Keys</h3>
                     <div className="space-y-2">
                       {Object.entries(apiKeys).map(([provider, key]) => (
                         <div key={provider} className="flex items-center justify-between p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white/60 dark:bg-gray-800/60">
-                          <div className="flex items-center">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                        <div className="flex items-center">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
                             <span className="text-xs">{provider.charAt(0).toUpperCase() + provider.slice(1)}</span>
-                          </div>
+                        </div>
                           <div className="flex items-center space-x-2">
                             <button 
                               className="text-xs text-blue-600 dark:text-blue-400"
@@ -1691,7 +1128,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                             >
                               Remove
                             </button>
-                          </div>
+                      </div>
                         </div>
                       ))}
                       <button 
@@ -1917,7 +1354,7 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                   <select
                     value={apiKeyProvider}
                     onChange={(e) => setApiKeyProvider(e.target.value)}
-                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm"
+                    className="w-full p-2.5 border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 focus:outline-none shadow-sm"
                   >
                     <option value="" disabled>Select a provider</option>
                     <option value="openai">OpenAI</option>
@@ -1925,7 +1362,6 @@ export default function Sidebar({ chats, currentChatId, selectedModel, onNewChat
                     <option value="mistral">Mistral AI</option>
                     <option value="google">Google AI</option>
                     <option value="cohere">Cohere</option>
-                    <option value="custom">Custom</option>
                   </select>
                 </div>
               )}

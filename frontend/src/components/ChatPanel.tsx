@@ -771,10 +771,10 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat, audioRe
                       <span className="mx-1.5">{chat.model.split('/').pop()}</span>
                       <span className="w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-600"></span>
                       <span className="ml-1.5">
-                        {assistantMsg
+                      {assistantMsg
                           ? new Date(assistantMsg.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
                           : new Date(userMsg.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                    </span>
                     </div>
                   </div>
                 </div>
@@ -797,7 +797,7 @@ export default function ChatPanel({ chat, selectedMessage, onUpdateChat, audioRe
                 <div className="flex items-center justify-center">
                   <span className="px-4 py-2 bg-white dark:bg-gray-800 rounded-full text-sm text-gray-600 dark:text-gray-300 font-medium shadow-sm border border-gray-100 dark:border-gray-700">
                     {pagination.currentPage + 1} of {pagination.totalPages}
-                  </span>
+                </span>
                 </div>
                 <button
                   className="flex items-center gap-1 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-medium rounded-full shadow-md hover:shadow-lg disabled:opacity-60 disabled:from-gray-400 disabled:to-gray-500 transition-all duration-200"

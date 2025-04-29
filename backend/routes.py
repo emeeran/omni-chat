@@ -1096,6 +1096,9 @@ def text_to_speech():
     text = data.get('text', '')
     voice = data.get('voice', 'en')
     
+    # Sanitize text: replace all newlines with spaces
+    text = text.replace('\r\n', ' ').replace('\n', ' ')
+    
     if not text.strip():
         return jsonify({'error': 'Empty text provided'}), 400
     
